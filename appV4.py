@@ -26,11 +26,12 @@ def generate_uuid():
     return str(uuid.uuid4())
 
 def save_message_to_chroma(role, content, custom_id=None):
+    user_id = session.get("user_id")
     embedding = embedder.encode(content).tolist()
-    doc_id = custom_id if custom_id else f"{role}_{int(time.time() * 1000)}"
+    doc_id = custom_id if custom_id else f"{role}_{int(time.time() * 1000)}_{user_id}"
     collection.add(
         documents=[content],
-        metadatas=[{"role": role}],
+        metadatas=[{"role": role, "user_id": user_id}],
         ids=[doc_id],
         embeddings=[embedding]
     )
@@ -61,16 +62,18 @@ def get_saved_user_name():
             return doc
     return None
 
-def get_relevant_context(query, n=3):
+def get_relevant_context(query, n=5):
+    user_id = session.get("user_id")
     query_emb = embedder.encode(query).tolist()
     results = collection.query(
         query_embeddings=[query_emb],
         n_results=n,
+        where={"user_id": user_id},
         include=["documents", "metadatas"]
     )
     context = []
     for doc, meta in zip(results['documents'][0], results['metadatas'][0]):
-        context.append({"role": meta["role"], "content": doc})
+        context.append({"role": meta.get("role", "unknown"), "content": doc})
     return context
 
 # Routes
@@ -81,14 +84,21 @@ def index():
 @app.route("/init", methods=["GET"])
 def init_chat():
     user_id = request.cookies.get("user_id") or request.args.get("user_id")
+
     if not user_id:
         user_id = generate_uuid()
+
     session["user_id"] = user_id
+    resp = make_response()
 
     user_name = get_saved_user_name()
-    message = f"Welcome back, {user_name}!" if user_name else "Hi! What’s your name?"
-    resp = make_response(jsonify({"message": message}))
-    resp.set_cookie("user_id", user_id, max_age=60 * 60 * 24 * 365 * 5)
+
+    if user_name:
+        resp.set_data(jsonify({"message": f"Welcome back, {user_name}!"}).data)
+    else:
+        resp.set_data(jsonify({"message": "Hi! What’s your name?"}).data)
+
+    resp.set_cookie("user_id", user_id, max_age=60 * 60 * 24 * 365 * 5)  # 5 years
     return resp
 
 @app.route("/chat", methods=["POST"])
@@ -104,7 +114,7 @@ def chat():
         return jsonify({"response": f"Nice to meet you, {user_input}!"})
 
     save_message_to_chroma("user", user_input)
-    context_messages = get_relevant_context(user_input, n=3)
+    context_messages = get_relevant_context(user_input, n=5)
     messages = context_messages + [{"role": "user", "content": user_input}]
 
     payload = {
