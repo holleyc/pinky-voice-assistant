@@ -28,10 +28,11 @@ def generate_uuid():
 def save_message_to_chroma(role, content, custom_id=None):
     user_id = session.get("user_id")
     embedding = embedder.encode(content).tolist()
-    doc_id = custom_id if custom_id else f"{role}_{int(time.time() * 1000)}_{user_id}"
+    timestamp = int(time.time() * 1000)
+    doc_id = custom_id if custom_id else f"{role}_{timestamp}_{user_id}"
     collection.add(
         documents=[content],
-        metadatas=[{"role": role, "user_id": user_id}],
+        metadatas=[{"role": role, "user_id": user_id, "timestamp": timestamp}],
         ids=[doc_id],
         embeddings=[embedding]
     )
@@ -149,6 +150,30 @@ def qr_pair():
     img.save(buffer, format="PNG")
     img_str = base64.b64encode(buffer.getvalue()).decode()
     return f"<h3>Scan to continue chat on mobile</h3><img src='data:image/png;base64,{img_str}'>"
+
+@app.route("/history")
+def history():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "No user session found."}), 400
+
+    results = collection.get(
+        where={"user_id": user_id},
+        include=["documents", "metadatas"]
+    )
+
+    chat_log = []
+    for doc, meta in zip(results['documents'], results['metadatas']):
+        if meta.get("role") in ["user", "assistant"]:
+            chat_log.append({
+                "role": meta["role"],
+                "content": doc,
+                "timestamp": meta.get("timestamp", 0)
+            })
+
+    chat_log.sort(key=lambda x: x["timestamp"])
+
+    return render_template("history.html", chat_log=chat_log)
 
 @app.route("/reset", methods=["GET"])
 def reset():

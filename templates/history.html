@@ -1,0 +1,17 @@
+<!-- templates/history.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat History</title>
+</head>
+<body>
+    <h1>Your Chat History</h1>
+    <ul>
+        {% for entry in chat_log %}
+            <li><strong>{{ entry.role.capitalize() }}:</strong> {{ entry.content }}</li>
+        {% endfor %}
+    </ul>
+    <a href="/">Back to Chat</a>
+</body>
+</html>
+
