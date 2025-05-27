@@ -11,6 +11,11 @@ from utils.chroma_utils import (
     get_relevant_context,
     get_chat_history
 )
+import tempfile
+import whisper
+from flask import request
+
+model = whisper.load_model("base")  # or "small", "medium", "large" depending on your setup
 
 app = Flask(__name__)
 app.secret_key = "super_secret_key"  # Use env variable in production
@@ -22,6 +27,21 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 def index():
     return render_template("chat.html")
 
+@app.route("/transcribe", methods=["POST"])
+def transcribe():
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio uploaded"}), 400
+
+    audio_file = request.files["audio"]
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
+        audio_file.save(temp_audio.name)
+
+        try:
+            result = model.transcribe(temp_audio.name)
+            return jsonify({"text": result["text"]})
+        except Exception as e:
+            print(f"Whisper transcription error: {e}")
+            return jsonify({"error": "Transcription failed"}), 500
 
 @app.route("/init", methods=["GET"])
 def init_chat():
