@@ -88,11 +88,20 @@
       color: #999;
       margin-bottom: 1rem;
     }
+
+    #ollama-status {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #999;
+      margin-bottom: 1rem;
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
   <h2>Chat with "Pinky"</h2>
   <div id="status">Connecting...</div>
+  <div id="ollama-status">Checking Ollama status...</div>
   <div id="chat-box"></div>
   <div class="input-container">
     <input id="user-input" type="text" placeholder="Type a message..." onkeydown="handleKey(event)" />
@@ -100,7 +109,30 @@
   </div>
 
   <script>
+    async function checkOllamaStatus() {
+      const statusElem = document.getElementById("ollama-status");
+      try {
+        const res = await fetch("/ollama_healthcheck");
+        const data = await res.json();
+        if (data.status === "success") {
+          statusElem.textContent = "🟢 Ollama is online!";
+          statusElem.style.color = "#50fa7b";
+          statusElem.style.fontStyle = "normal";
+        } else {
+          statusElem.textContent = "🔴 Ollama offline: " + data.message;
+          statusElem.style.color = "#ff4d4d";
+          statusElem.style.fontStyle = "italic";
+        }
+      } catch (err) {
+        statusElem.textContent = "🔴 Error checking Ollama status.";
+        statusElem.style.color = "#ff4d4d";
+        statusElem.style.fontStyle = "italic";
+      }
+    }
+
     document.addEventListener("DOMContentLoaded", async () => {
+      await checkOllamaStatus();
+
       const userId = localStorage.getItem("user_id");
       try {
         const res = await fetch(userId ? `/init?user_id=${userId}` : "/init");

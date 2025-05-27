@@ -35,6 +35,36 @@ def init_chat():
     response.set_cookie("user_id", user_id, max_age=60 * 60 * 24 * 365 * 5)
     return response
 
+@app.route("/ollama_healthcheck", methods=["GET"])
+def ollama_healthcheck():
+    try:
+        response = requests.post(OLLAMA_URL, json={
+            "model": "pinky",
+            "messages": [{"role": "user", "content": "ping"}],
+            "stream": False
+        })
+        response.raise_for_status()
+        content = response.json().get("message", {}).get("content", "")
+        return jsonify({
+            "status": "success",
+            "message": content or "Ollama responded, but with no content."
+        })
+    except requests.exceptions.ConnectionError:
+        return jsonify({
+            "status": "error",
+            "message": "❌ Could not connect to Ollama. Is it running on localhost:11434?"
+        }), 503
+    except requests.exceptions.HTTPError as http_err:
+        return jsonify({
+            "status": "error",
+            "message": f"❌ Ollama HTTP error: {http_err}"
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"❌ Unexpected error: {str(e)}"
+        }), 500
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
