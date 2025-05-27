@@ -51,11 +51,43 @@ def chat():
     context = get_relevant_context(user_id, user_input)
     messages = context + [{"role": "user", "content": user_input}]
 
-    response = requests.post(OLLAMA_URL, json={"model": "pinky", "messages": messages})
-    assistant_msg = response.json().get("message", {}).get("content", "")
-    save_message_to_chroma(user_id, "assistant", assistant_msg)
+    try:
+        payload = {
+            "model": "pinky",
+            "messages": messages,
+            "stream": False
+        }
+        response = requests.post(OLLAMA_URL, json=payload)
+        response.raise_for_status()
 
-    return jsonify({"response": assistant_msg})
+        json_data = response.json()
+        assistant_msg = json_data.get("message", {}).get("content", "")
+
+        if not assistant_msg:
+            print("Ollama response missing 'message.content':", json_data)
+            return jsonify({
+                "response": "⚠️ LLM response was empty or malformed. Check server logs."
+            })
+
+        save_message_to_chroma(user_id, "assistant", assistant_msg)
+        return jsonify({"response": assistant_msg})
+
+    except requests.exceptions.ConnectionError:
+        print("❌ Ollama server is unreachable at", OLLAMA_URL)
+        return jsonify({
+            "response": "⚠️ Could not connect to Ollama. Is it running at localhost:11434?"
+        })
+    except requests.exceptions.HTTPError as http_err:
+        print("❌ HTTP error from Ollama:", http_err)
+        return jsonify({
+            "response": f"⚠️ Ollama returned an HTTP error: {http_err}"
+        })
+    except Exception as e:
+        print("❌ Unexpected error:", e)
+        return jsonify({
+            "response": f"⚠️ Unexpected error occurred: {str(e)}"
+        })
+
 
 
 @app.route("/login", methods=["GET", "POST"])

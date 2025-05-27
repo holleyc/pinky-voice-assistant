@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Pinky Openchat Chat</title>
   <style>
     body {
@@ -81,10 +81,18 @@
     .input-container button:hover {
       background: #e63946;
     }
+
+    #status {
+      text-align: center;
+      font-size: 1rem;
+      color: #999;
+      margin-bottom: 1rem;
+    }
   </style>
 </head>
 <body>
   <h2>Chat with "Pinky"</h2>
+  <div id="status">Connecting...</div>
   <div id="chat-box"></div>
   <div class="input-container">
     <input id="user-input" type="text" placeholder="Type a message..." onkeydown="handleKey(event)" />
@@ -92,26 +100,26 @@
   </div>
 
   <script>
-  if (!localStorage.getItem("user_id")) {
-    fetch("/init").then(res => res.json()).then(data => {
-      document.body.innerHTML += `<p>${data.message}</p>`;
-    });
-  } else {
-    fetch(`/init?user_id=${localStorage.getItem("user_id")}`)
-      .then(res => res.json())
-      .then(data => {
-        document.body.innerHTML += `<p>${data.message}</p>`;
-      });
-  }
+    document.addEventListener("DOMContentLoaded", async () => {
+      const userId = localStorage.getItem("user_id");
+      try {
+        const res = await fetch(userId ? `/init?user_id=${userId}` : "/init");
+        const data = await res.json();
+        document.getElementById("status").textContent = "";
+        addMessage("ai", data.message);
 
-    document.addEventListener("DOMContentLoaded", function () {
-      fetch("/init")
-        .then(response => response.json())
-        .then(data => {
-          if (data.message) {
-            addMessage("ai", data.message);
+        // Extract user_id from cookie if not in localStorage
+        if (!userId) {
+          const cookies = document.cookie.split(";").map(c => c.trim());
+          const uidCookie = cookies.find(c => c.startsWith("user_id="));
+          if (uidCookie) {
+            localStorage.setItem("user_id", uidCookie.split("=")[1]);
           }
-        });
+        }
+      } catch (err) {
+        console.error("Failed to init:", err);
+        document.getElementById("status").textContent = "Failed to connect.";
+      }
     });
 
     function addMessage(role, message) {
@@ -128,7 +136,6 @@
       const message = input.value.trim();
       if (!message) return;
       input.value = "";
-
       addMessage("user", message);
 
       try {
