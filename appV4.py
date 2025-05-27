@@ -1,155 +1,86 @@
 #!/usr/bin/env python3
 
-import uuid
-import time
-import qrcode
-import base64
-from io import BytesIO
-
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
 from flask import Flask, request, jsonify, render_template, session, make_response
 import requests
-
-# Initialize ChromaDB
-client = chromadb.PersistentClient(path="./chroma_db")
-collection = client.get_or_create_collection(name="Pinkys_Brain")
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
+from utils.qr_utils import generate_qr_base64
+from utils.chroma_utils import (
+    get_or_create_user_id,
+    save_user_name,
+    get_saved_user_name,
+    save_message_to_chroma,
+    get_relevant_context,
+    get_chat_history
+)
 
 app = Flask(__name__)
-app.secret_key = "super_secret_key"  # Replace with a secure key in production
+app.secret_key = "super_secret_key"  # Use env variable in production
+
 OLLAMA_URL = "http://localhost:11434/api/chat"
-
-# Utilities
-def generate_uuid():
-    return str(uuid.uuid4())
-
-def save_message_to_chroma(role, content, custom_id=None):
-    user_id = session.get("user_id")
-    embedding = embedder.encode(content).tolist()
-    timestamp = int(time.time() * 1000)
-    doc_id = custom_id if custom_id else f"{role}_{timestamp}_{user_id}"
-    collection.add(
-        documents=[content],
-        metadatas=[{"role": role, "user_id": user_id, "timestamp": timestamp}],
-        ids=[doc_id],
-        embeddings=[embedding]
-    )
-
-def save_user_name(name):
-    user_id = session.get("user_id")
-    if not user_id:
-        user_id = generate_uuid()
-        session["user_id"] = user_id
-    embedding = embedder.encode(name).tolist()
-    collection.add(
-        documents=[name],
-        metadatas=[{"type": "user_name", "user_id": user_id}],
-        ids=[f"user_name_{user_id}"],
-        embeddings=[embedding]
-    )
-
-def get_saved_user_name():
-    user_id = session.get("user_id")
-    if not user_id:
-        return None
-    results = collection.get(
-        where={"user_id": user_id},
-        include=["documents", "metadatas"]
-    )
-    for doc, meta in zip(results['documents'], results['metadatas']):
-        if meta.get("type") == "user_name":
-            return doc
-    return None
-
-def get_relevant_context(query, n=5):
-    user_id = session.get("user_id")
-    query_emb = embedder.encode(query).tolist()
-    results = collection.query(
-        query_embeddings=[query_emb],
-        n_results=n,
-        where={"user_id": user_id},
-        include=["documents", "metadatas"]
-    )
-    context = []
-    for doc, meta in zip(results['documents'][0], results['metadatas'][0]):
-        context.append({"role": meta.get("role", "unknown"), "content": doc})
-    return context
 
 # Routes
 @app.route("/")
 def index():
     return render_template("chat.html")
 
+
 @app.route("/init", methods=["GET"])
 def init_chat():
-    user_id = request.cookies.get("user_id") or request.args.get("user_id")
-
-    if not user_id:
-        user_id = generate_uuid()
-
+    user_id = get_or_create_user_id(request)
     session["user_id"] = user_id
-    resp = make_response()
 
-    user_name = get_saved_user_name()
+    user_name = get_saved_user_name(user_id)
+    message = f"Welcome back, {user_name}!" if user_name else "Hi! What’s your name?"
 
-    if user_name:
-        resp.set_data(jsonify({"message": f"Welcome back, {user_name}!"}).data)
-    else:
-        resp.set_data(jsonify({"message": "Hi! What’s your name?"}).data)
+    response = jsonify({"message": message})
+    response.set_cookie("user_id", user_id, max_age=60 * 60 * 24 * 365 * 5)
+    return response
 
-    resp.set_cookie("user_id", user_id, max_age=60 * 60 * 24 * 365 * 5)  # 5 years
-    return resp
 
 @app.route("/chat", methods=["POST"])
 def chat():
     user_input = request.json.get("message", "")
-    if "user_id" not in session:
-        session["user_id"] = request.cookies.get("user_id") or generate_uuid()
+    user_id = session.setdefault("user_id", get_or_create_user_id(request))
+    user_name = get_saved_user_name(user_id)
 
-    user_name = get_saved_user_name()
     if not user_name:
-        save_message_to_chroma("user", user_input)
-        save_user_name(user_input)
+        save_message_to_chroma(user_id, "user", user_input)
+        save_user_name(user_id, user_input)
         return jsonify({"response": f"Nice to meet you, {user_input}!"})
 
-    save_message_to_chroma("user", user_input)
-    context_messages = get_relevant_context(user_input, n=5)
-    messages = context_messages + [{"role": "user", "content": user_input}]
+    save_message_to_chroma(user_id, "user", user_input)
+    context = get_relevant_context(user_id, user_input)
+    messages = context + [{"role": "user", "content": user_input}]
 
-    payload = {
-        "model": "pinky",
-        "messages": messages,
-        "stream": False
-    }
-    response = requests.post(OLLAMA_URL, json=payload)
-    response.raise_for_status()
-    assistant_response = response.json().get("message", {}).get("content", "")
+    response = requests.post(OLLAMA_URL, json={"model": "pinky", "messages": messages})
+    assistant_msg = response.json().get("message", {}).get("content", "")
+    save_message_to_chroma(user_id, "assistant", assistant_msg)
 
-    save_message_to_chroma("assistant", assistant_response)
-    return jsonify({"response": assistant_response})
+    return jsonify({"response": assistant_msg})
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         username = request.form["username"]
-        user_id = session.get("user_id") or generate_uuid()
-        session["user_id"] = user_id
-        save_user_name(username)
+        user_id = session.setdefault("user_id", get_or_create_user_id(request))
+        save_user_name(user_id, username)
         return render_template("chat.html")
     return render_template("login.html")
 
+
 @app.route("/qr")
 def qr_pair():
-    user_id = session.get("user_id") or generate_uuid()
-    session["user_id"] = user_id
-    url = f"http://localhost:5000/?user_id={user_id}"
-    img = qrcode.make(url)
-    buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    img_str = base64.b64encode(buffer.getvalue()).decode()
+    user_id = session.setdefault("user_id", get_or_create_user_id(request))
+    img_str = generate_qr_base64(user_id)
     return f"<h3>Scan to continue chat on mobile</h3><img src='data:image/png;base64,{img_str}'>"
+
+
+@app.route("/pair", methods=["GET"])
+def pair():
+    user_id = session.setdefault("user_id", get_or_create_user_id(request))
+    img_str = generate_qr_base64(user_id)
+    return jsonify({"uuid": user_id, "qr_image_base64": img_str})
+
 
 @app.route("/history")
 def history():
@@ -157,28 +88,28 @@ def history():
     if not user_id:
         return jsonify({"error": "No user session found."}), 400
 
-    results = collection.get(
-        where={"user_id": user_id},
-        include=["documents", "metadatas"]
-    )
-
-    chat_log = []
-    for doc, meta in zip(results['documents'], results['metadatas']):
-        if meta.get("role") in ["user", "assistant"]:
-            chat_log.append({
-                "role": meta["role"],
-                "content": doc,
-                "timestamp": meta.get("timestamp", 0)
-            })
-
-    chat_log.sort(key=lambda x: x["timestamp"])
-
+    chat_log = get_chat_history(user_id)
     return render_template("history.html", chat_log=chat_log)
+
+
+@app.route("/whoami", methods=["GET"])
+def whoami():
+    user_id = session.get("user_id") or request.cookies.get("user_id")
+    if not user_id:
+        return jsonify({"error": "User not identified"}), 404
+
+    session["user_id"] = user_id
+    return jsonify({
+        "user_id": user_id,
+        "user_name": get_saved_user_name(user_id)
+    })
+
 
 @app.route("/reset", methods=["GET"])
 def reset():
     session.clear()
     return jsonify({"message": "Session reset."})
+
 
 if __name__ == "__main__":
     app.run(debug=True, host='0.0.0.0', port=5000)
