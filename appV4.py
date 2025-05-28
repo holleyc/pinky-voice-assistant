@@ -1,197 +1,269 @@
-#!/usr/bin/env python3
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pinky Openchat Chat</title>
 
-from flask import Flask, request, jsonify, render_template, session, make_response
-import requests
-from utils.qr_utils import generate_qr_base64
-from utils.chroma_utils import (
-    get_or_create_user_id,
-    save_user_name,
-    get_saved_user_name,
-    save_message_to_chroma,
-    get_relevant_context,
-    get_chat_history
-)
-import tempfile
-import whisper
-from flask import request
+    <!-- favicon -->
+ <link rel="icon" type="image/png" href="{{ url_for('static', filename='Pinky.png') }}" />
 
-model = whisper.load_model("base")  # or "small", "medium", "large" depending on your setup
+ <!-- <script src="{{ url_for('static', filename='js/chat.js') }}"></script> -->
 
-app = Flask(__name__)
-app.secret_key = "super_secret_key"  # Use env variable in production
+  <style>
+    body {
+      font-family: monospace;
+      background-color: #1e1e1e;
+      color: #f0f0f0;
+      margin: 0;
+      padding: 1rem;
+      line-height: 1.6;
+    }
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+    h2 {
+      color: #ff4d4d;
+      text-align: center;
+      font-size: 1.8rem;
+      margin-bottom: 1rem;
+    }
 
-# Routes
-@app.route("/")
-def index():
-    return render_template("chat.html")
+    #chat-box {
+      border: 1px solid #444;
+      background: #2a2a2a;
+      padding: 1rem;
+      height: 60vh;
+      overflow-y: auto;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+    }
 
-@app.route("/transcribe", methods=["POST"])
-def transcribe():
-    if "audio" not in request.files:
-        return jsonify({"error": "No audio uploaded"}), 400
+    .message {
+      margin-bottom: 1rem;
+      word-wrap: break-word;
+    }
 
-    audio_file = request.files["audio"]
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
-        audio_file.save(temp_audio.name)
+    .user {
+      color: #ff4d4d;
+      font-weight: bold;
+    }
 
-        try:
-            result = model.transcribe(temp_audio.name)
-            return jsonify({"text": result["text"]})
-        except Exception as e:
-            print(f"Whisper transcription error: {e}")
-            return jsonify({"error": "Transcription failed"}), 500
+    .ai {
+      color: #50fa7b;
+      font-weight: bold;
+    }
 
-@app.route("/init", methods=["GET"])
-def init_chat():
-    user_id = get_or_create_user_id(request)
-    session["user_id"] = user_id
+    .input-container {
+      display: flex;
+      gap: 0.5rem;
+      width: 100%;
+      margin-bottom: 1rem;
+    }
 
-    user_name = get_saved_user_name(user_id)
-    message = f"Welcome back, {user_name}!" if user_name else "Hi! What’s your name?"
+    .input-container input[type="text"] {
+      flex: 1;
+      padding: 1rem;
+      font-size: 1.1rem;
+      background: #111;
+      color: #f0f0f0;
+      border: 1px solid #444;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
 
-    response = jsonify({"message": message})
-    response.set_cookie("user_id", user_id, max_age=60 * 60 * 24 * 365 * 5)
-    return response
+    .input-container button {
+      padding: 1rem 1.5rem;
+      font-size: 1.1rem;
+      background: #ff4d4d;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      white-space: nowrap;
+      box-sizing: border-box;
+    }
 
-@app.route("/ollama_healthcheck", methods=["GET"])
-def ollama_healthcheck():
-    try:
-        response = requests.post(OLLAMA_URL, json={
-            "model": "pinky",
-            "messages": [{"role": "user", "content": "ping"}],
-            "stream": False
-        })
-        response.raise_for_status()
-        content = response.json().get("message", {}).get("content", "")
-        return jsonify({
-            "status": "success",
-            "message": content or "Ollama responded, but with no content."
-        })
-    except requests.exceptions.ConnectionError:
-        return jsonify({
-            "status": "error",
-            "message": "❌ Could not connect to Ollama. Is it running on localhost:11434?"
-        }), 503
-    except requests.exceptions.HTTPError as http_err:
-        return jsonify({
-            "status": "error",
-            "message": f"❌ Ollama HTTP error: {http_err}"
-        }), 500
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"❌ Unexpected error: {str(e)}"
-        }), 500
+    .input-container button:hover {
+      background: #e63946;
+    }
 
+    #status {
+      text-align: center;
+      font-size: 1rem;
+      color: #999;
+      margin-bottom: 1rem;
+    }
 
-@app.route("/chat", methods=["POST"])
-def chat():
-    user_input = request.json.get("message", "")
-    user_id = session.setdefault("user_id", get_or_create_user_id(request))
-    user_name = get_saved_user_name(user_id)
+    #ollama-status {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #999;
+      margin-bottom: 1rem;
+      font-style: italic;
+    }
+  </style>
+</head>
 
-    if not user_name:
-        save_message_to_chroma(user_id, "user", user_input)
-        save_user_name(user_id, user_input)
-        return jsonify({"response": f"Nice to meet you, {user_input}!"})
+<body>
+  <h2>Chat with "Pinky"</h2>
+  <div id="status">Connecting...</div>
+  <div id="ollama-status">Checking Ollama status...</div>
+  <div id="chat-box"></div>
+  <div class="input-container">
+    <input id="user-input" type="text" placeholder="Type a message..." onkeydown="handleKey(event)" />
+    <button onclick="sendMessage()">Send</button>
+    <!-- <button onclick="startDictation()" id="dictate-button" title="Dictate">🎙️</button> -->
 
-    save_message_to_chroma(user_id, "user", user_input)
-    context = get_relevant_context(user_id, user_input)
-    messages = context + [{"role": "user", "content": user_input}]
+  </div>
 
-    try:
-        payload = {
-            "model": "pinky",
-            "messages": messages,
-            "stream": False
+  <script>
+    async function checkOllamaStatus() {
+      const statusElem = document.getElementById("ollama-status");
+      try {
+        const res = await fetch("/ollama_healthcheck");
+        const data = await res.json();
+        if (data.status === "success") {
+          statusElem.textContent = "🟢 Ollama is online!";
+          statusElem.style.color = "#50fa7b";
+          statusElem.style.fontStyle = "normal";
+        } else {
+          statusElem.textContent = "🔴 Ollama offline: " + data.message;
+          statusElem.style.color = "#ff4d4d";
+          statusElem.style.fontStyle = "italic";
         }
-        response = requests.post(OLLAMA_URL, json=payload)
-        response.raise_for_status()
+      } catch (err) {
+        statusElem.textContent = "🔴 Error checking Ollama status.";
+        statusElem.style.color = "#ff4d4d";
+        statusElem.style.fontStyle = "italic";
+      }
+    }
 
-        json_data = response.json()
-        assistant_msg = json_data.get("message", {}).get("content", "")
+    document.addEventListener("DOMContentLoaded", async () => {
+      await checkOllamaStatus();
 
-        if not assistant_msg:
-            print("Ollama response missing 'message.content':", json_data)
-            return jsonify({
-                "response": "⚠️ LLM response was empty or malformed. Check server logs."
-            })
+      const userId = localStorage.getItem("user_id");
+      try {
+        const res = await fetch(userId ? `/init?user_id=${userId}` : "/init");
+        const data = await res.json();
+        document.getElementById("status").textContent = "";
+        addMessage("ai", data.message);
 
-        save_message_to_chroma(user_id, "assistant", assistant_msg)
-        return jsonify({"response": assistant_msg})
+        // Extract user_id from cookie if not in localStorage
+        if (!userId) {
+          const cookies = document.cookie.split(";").map(c => c.trim());
+          const uidCookie = cookies.find(c => c.startsWith("user_id="));
+          if (uidCookie) {
+            localStorage.setItem("user_id", uidCookie.split("=")[1]);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to init:", err);
+        document.getElementById("status").textContent = "Failed to connect.";
+      }
+    });
 
-    except requests.exceptions.ConnectionError:
-        print("❌ Ollama server is unreachable at", OLLAMA_URL)
-        return jsonify({
-            "response": "⚠️ Could not connect to Ollama. Is it running at localhost:11434?"
-        })
-    except requests.exceptions.HTTPError as http_err:
-        print("❌ HTTP error from Ollama:", http_err)
-        return jsonify({
-            "response": f"⚠️ Ollama returned an HTTP error: {http_err}"
-        })
-    except Exception as e:
-        print("❌ Unexpected error:", e)
-        return jsonify({
-            "response": f"⚠️ Unexpected error occurred: {str(e)}"
-        })
+    function addMessage(role, message) {
+      const chatBox = document.getElementById("chat-box");
+      const messageElem = document.createElement("div");
+      messageElem.className = "message";
+      messageElem.innerHTML = `<span class="${role === 'user' ? 'user' : 'ai'}">${role === 'user' ? 'You' : 'Pinky'}:</span> ${message}`;
+      chatBox.appendChild(messageElem);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
 
+    async function sendMessage() {
+      const input = document.getElementById("user-input");
+      const message = input.value.trim();
+      if (!message) return;
+      input.value = "";
+      addMessage("user", message);
 
+      try {
+        const response = await fetch("/chat", {
+          method: "POST",
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        username = request.form["username"]
-        user_id = session.setdefault("user_id", get_or_create_user_id(request))
-        save_user_name(user_id, username)
-        return render_template("chat.html")
-    return render_template("login.html")
+        const data = await response.json();
+        addMessage("ai", data.response);
+      } catch (err) {
+        console.error("Chat error:", err);
+        addMessage("ai", "<span style='color:red;'>Error: Failed to contact backend.</span>");
+      }
+    }
 
+    function handleKey(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        sendMessage();
+      }
+    }
+  </script>
+  <script>
+  let mediaRecorder;
+  let audioChunks = [];
 
-@app.route("/qr")
-def qr_pair():
-    user_id = session.setdefault("user_id", get_or_create_user_id(request))
-    img_str = generate_qr_base64(user_id)
-    return f"<h3>Scan to continue chat on mobile</h3><img src='data:image/png;base64,{img_str}'>"
+  async function startDictation() {
+    const button = document.getElementById("dictate-button");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert("🎤 Microphone access is not supported in this browser.");
+      return;
+    }
 
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
 
-@app.route("/pair", methods=["GET"])
-def pair():
-    user_id = session.setdefault("user_id", get_or_create_user_id(request))
-    img_str = generate_qr_base64(user_id)
-    return jsonify({"uuid": user_id, "qr_image_base64": img_str})
+      mediaRecorder.ondataavailable = event => {
+        if (event.data.size > 0) audioChunks.push(event.data);
+      };
 
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('audio', blob, 'audio.webm');
 
-@app.route("/history")
-def history():
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"error": "No user session found."}), 400
+        button.textContent = "⏳ Transcribing...";
+        button.disabled = true;
 
-    chat_log = get_chat_history(user_id)
-    return render_template("history.html", chat_log=chat_log)
+        try {
+          const res = await fetch("/transcribe", {
+            method: "POST",
+            body: formData
+          });
 
+          const data = await res.json();
+          if (data.text) {
+            document.getElementById("user-input").value = data.text;
+          } else {
+            alert("⚠️ Failed to transcribe.");
+          }
+        } catch (err) {
+          console.error("Transcription error:", err);
+          alert("❌ Error during transcription.");
+        } finally {
+          button.textContent = "🎙️ Dictate";
+          button.disabled = false;
+        }
+      };
 
-@app.route("/whoami", methods=["GET"])
-def whoami():
-    user_id = session.get("user_id") or request.cookies.get("user_id")
-    if not user_id:
-        return jsonify({"error": "User not identified"}), 404
+      mediaRecorder.start();
+      button.textContent = "🛑 Stop";
+      button.onclick = () => {
+        mediaRecorder.stop();
+        stream.getTracks().forEach(track => track.stop());
+        button.onclick = startDictation;
+      };
+    } catch (err) {
+      console.error("Microphone access denied:", err);
+      alert("❌ Microphone access denied.");
+    }
+  }
+</script>
 
-    session["user_id"] = user_id
-    return jsonify({
-        "user_id": user_id,
-        "user_name": get_saved_user_name(user_id)
-    })
+</body>
+</html>
 
-
-@app.route("/reset", methods=["GET"])
-def reset():
-    session.clear()
-    return jsonify({"message": "Session reset."})
-
-
-if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=5000)
