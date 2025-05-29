@@ -2,7 +2,7 @@ import os
 import json
 import time
 import torch
-import whisper
+from faster_whisper import WhisperModel
 import requests
 import threading
 import numpy as np
@@ -20,7 +20,7 @@ from chromadb import PersistentClient  # ✅ Use persistent ChromaDB
 
 
 # ---------- CONFIGURATION ----------
-WHISPER_MODEL_NAME = "medium"
+WHISPER_MODEL_NAME = "small"
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 TTS_MODEL_NAME = "tts_models/en/vctk/vits"
 OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -82,16 +82,17 @@ except Exception as e:
     print(f"Embedder error, falling back to CPU: {e}")
     embedder = SentenceTransformer(EMBEDDING_MODEL_NAME, device="cpu")
 
-print("Loading Whisper...")
+print("Loading Faster-Whisper model...")
 try:
-    whisper_model = whisper.load_model(WHISPER_MODEL_NAME, device=device)
-    print(f"Using Whisper device: {device}")
-
+    whisper_model = WhisperModel(
+        WHISPER_MODEL_NAME,
+        device=device,
+        compute_type="float16" if device == "cuda" else "int8"
+    )
+    print(f"Using Faster-Whisper on device: {device}")
 except Exception as e:
-    print(f"Whisper fallback to CPU: {e}")
-    whisper_model = whisper.load_model(WHISPER_MODEL_NAME, device="cpu")
-    device = "cpu"
-    print(f"Using Whisper device: {device}")
+    print(f"Faster-Whisper load error: {e}")
+    exit(1)
 
 
 # ---------- AUDIO FUNCTIONS ----------
@@ -179,8 +180,9 @@ def play_audio(text):
 def recognize_speech(audio):
     print("🧠 Transcribing...")
     normalized = audio / np.max(np.abs(audio))
-    result = whisper_model.transcribe(normalized, fp16=(device == "cuda"))
-    return result.get("text", "").strip()
+    segments, _ = whisper_model.transcribe(normalized, beam_size=5)
+    full_text = " ".join(segment.text for segment in segments)
+    return full_text.strip()
 
 # ---------- LLM COMMUNICATION ----------
 def identify_user():
