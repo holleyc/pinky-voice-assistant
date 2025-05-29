@@ -50,8 +50,10 @@ print("Loading TTS model...")
 
 # ---------- INIT MODELS ----------
 #os.environ["TTS_DEVICE"] = device
-from TTS.api import TTS
-tts = TTS(model_name=TTS_MODEL_NAME, progress_bar=False)
+if "tts" not in globals():
+    from TTS.api import TTS
+    tts = TTS(model_name=TTS_MODEL_NAME, progress_bar=False)
+    
 tts_sample_rate = tts.synthesizer.output_sample_rate
 
 #tts = TTS(model_name=TTS_MODEL_NAME, progress_bar=False)
