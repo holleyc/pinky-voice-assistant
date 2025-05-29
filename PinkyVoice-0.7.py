@@ -267,7 +267,9 @@ def search_memory(query, top_k=3):
     embedding = embedder.encode([query])[0].tolist()
     results = collection.query(query_embeddings=[embedding], n_results=top_k)
     if results["documents"]:
-        return "\n".join(results["documents"][0])
+        context = "\n".join(results["documents"][0])
+        print("🔍 Retrieved memory context:\n", context)
+        return context
     return ""
 
 def save_memory(entry):
