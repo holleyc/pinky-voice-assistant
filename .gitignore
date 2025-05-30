@@ -1,2 +1,4 @@
 chroma_db/*
 user_profiles/*
+venv
+venv/bin/activate.csh
