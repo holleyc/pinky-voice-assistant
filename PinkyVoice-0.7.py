@@ -244,16 +244,29 @@ def lexical_features(text):
         "keywords": keywords
     }
 
+def convert_lists_to_strings(d):
+    new_dict = {}
+    for k, v in d.items():
+        if isinstance(v, list):
+            # Join list items into a single string separated by spaces or commas
+            new_dict[k] = " ".join(str(item) for item in v)
+        else:
+            new_dict[k] = v
+    return new_dict
+
 def save_memory(entry):
     clean_entry = clean_text(entry)
     if not clean_entry.strip():
         return
-    
+
     # Perform lexical analysis
     features = lexical_features(clean_entry)
 
+    # Convert lists in metadata to strings
+    metadata = convert_lists_to_strings(features)
+
     # Optionally include keywords in the embedding process
-    embedding_input = clean_entry + " " + " ".join(features["keywords"])
+    embedding_input = clean_entry + " " + " ".join(features.get("keywords", []))
     embedding = embedder.encode([clean_entry])[0].tolist()
     doc_id = str(time.time())
     try:
@@ -261,10 +274,11 @@ def save_memory(entry):
             documents=[clean_entry], 
             embeddings=[embedding], 
             ids=[doc_id],
-            metadatas=[features]  # Save lexical metadata with each document
+            metadatas=[metadata]  # Use cleaned metadata here
         )
     except Exception as e:
         log_error_with_context(e, user_input=clean_entry)
+
 
 def assistant_loop():
     print("🧠 Voice Assistant is active. Say 'exit' to quit.\n")
