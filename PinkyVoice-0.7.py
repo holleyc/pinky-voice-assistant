@@ -11,6 +11,7 @@ import unicodedata
 import re
 import hashlib
 import logging
+import spacy
 from logging.handlers import RotatingFileHandler
 from pydub import AudioSegment
 from pydub.playback import play as pydub_play
@@ -47,6 +48,7 @@ CHROMA_PERSIST_DIR = "./chroma_db"
 RECORD_DURATION = 5
 DEFAULT_SPEAKER = "p294"
 USER_PROFILES_DIR = "./user_profiles"
+nlp = spacy.load("en_core_web_sm")
 
 USE_GPU = torch.cuda.is_available()
 device = "cuda" if USE_GPU else "cpu"
@@ -231,14 +233,36 @@ def search_memory(query, top_k=3):
         return context
     return ""
 
+def lexical_features(text):
+    doc = nlp(text)
+    tokens = [token.text for token in doc if not token.is_stop and token.is_alpha]
+    entities = [(ent.text, ent.label_) for ent in doc.ents]
+    keywords = list(set(tokens))
+    return {
+        "tokens": tokens,
+        "entities": entities,
+        "keywords": keywords
+    }
+
 def save_memory(entry):
     clean_entry = clean_text(entry)
     if not clean_entry.strip():
         return
+    
+    # Perform lexical analysis
+    features = lexical_features(clean_entry)
+
+    # Optionally include keywords in the embedding process
+    embedding_input = clean_entry + " " + " ".join(features["keywords"])
     embedding = embedder.encode([clean_entry])[0].tolist()
     doc_id = str(time.time())
     try:
-        collection.add(documents=[clean_entry], embeddings=[embedding], ids=[doc_id])
+        collection.add(
+            documents=[clean_entry], 
+            embeddings=[embedding], 
+            ids=[doc_id],
+            metadatas=[features]  # Save lexical metadata with each document
+        )
     except Exception as e:
         log_error_with_context(e, user_input=clean_entry)
 

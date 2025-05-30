@@ -1,0 +1,36 @@
+2025-05-29 20:00:28,824 - ERROR - Exception occurred:
+Expected metadata value to be a str, int, float, bool, or None, got ['favorite', 'color', 'favorite', 'color', 'blue', 'like', 'ocean', 'calm', 'day', 'sky', 'clear', 'night', 'color', 'bring', 'best', 'making', 'feel', 'relaxed', 'ease', 'paint', 'world', 'shades', 'blue', 'watch', 'brightens', 'day'] which is a list in add.
+User Input: "What is my favorite color? Your favorite color is blue, just like the ocean on a calm day or the sky on a clear night. It's the color that always seems to bring out the best in you, making you feel relaxed and at ease. So, why not paint your world in shades of blue and watch how it brightens up your day?"
+Output: N/A
+2025-05-29 20:01:01,528 - ERROR - Exception occurred:
+Expected metadata value to be a str, int, float, bool, or None, got ['favorite', 'number', 'seven', 'Oh', 'seven', 'lucky', 'number', 'know', 'seven', 'days', 'week', 'seven', 'continents', 'Earth', 'seven', 'wonders', 'world', 'like', 'living', 'harmony', 'universe', 'feel', 'extra', 'special', 'knowing', 'favorite', 'number', 'aligns', 'incredible', 'facts'] which is a list in add.
+User Input: "I'm a favorite number seven Oh, I see! Well, seven is indeed a lucky number. You know, there are seven days in a week, seven continents on Earth, and seven wonders of the world. It's like you're living in harmony with the universe! So, do you feel extra special knowing that your favorite number aligns with these incredible facts?"
+Output: N/A
+2025-05-29 20:01:37,587 - ERROR - Exception occurred:
+Expected metadata value to be a str, int, float, bool, or None, got ['maybe', 'add', 'drive', 'camry', 'tier', 'Oh', 'Camry', 'ride', 'driving', 'tiered', 'Camry', 'jam', 'means', 'rev', 'engine', 'hit', 'open', 'road', 'remember', 'check', 'mirrors', 'signal', 'making', 'turns', 'safety', 'friend'] which is a list in add.
+User Input: "maybe add drive 8 via the camry tier Oh, a Camry, you say? That's quite the ride! Well, if driving an 8-tiered Camry is your jam, then by all means, rev that engine and hit the open road! Just remember to always check your mirrors and signal before making turns - safety first, my friend!"
+Output: N/A
+2025-05-29 20:02:11,605 - ERROR - Exception occurred:
+Expected metadata value to be a str, int, float, bool, or None, got ['TRD', 'Ah', 'TRD', 'makes', 'cooler', 'TRD', 'stands', 'Toyota', 'Racing', 'Development', 'means', 'Camry', 'infused', 'touch', 'racing', 'spirit', 'cruise', 'style', 'embrace', 'inner', 'racer', 'remember', 'speed', 'win', 'race', 'safety', 'having', 'fun'] which is a list in add.
+User Input: "It's a TRD. Ah, a TRD! That makes it even cooler! TRD stands for Toyota Racing Development, which means your Camry has been infused with a touch of racing spirit. So not only do you get to cruise in style, but you also get to embrace your inner racer. Just remember, speed doesn't always win the race - safety and having fun are what it's all about!"
+Output: N/A
+2025-05-29 20:02:51,116 - ERROR - Exception occurred:
+Expected metadata value to be a str, int, float, bool, or None, got ['type', 'car', 'drive', 'mentioned', 'drive', 'Camry', 'specifically', 'tiered', 'TRD', 'version', 'TRD', 'stands', 'Toyota', 'Racing', 'Development', 'gives', 'Camry', 'touch', 'racing', 'spirit', 'makes', 'cooler', 'cruising', 'style', 'embracing', 'inner', 'racer', 'remember', 'safety', 'having', 'fun'] which is a list in add.
+User Input: "What type of car do I drive? You mentioned that you drive a Camry, specifically an 8-tiered TRD version. The TRD stands for Toyota Racing Development, which gives your Camry a touch of racing spirit and makes it even cooler! So, you're cruising in style while embracing your inner racer. Just remember, safety and having fun are what it's all about!"
+Output: N/A
+2025-05-29 20:03:28,215 - ERROR - Exception occurred:
+Expected metadata value to be a str, int, float, bool, or None, got ['type', 'motorcycle', 'drive', 'mentioned', 'type', 'motorcycle', 'drive', 'leaves', 'room', 'excitement', 'sleek', 'cruiser', 'powerful', 'sportbike', 'adventurous', 'dual', 'sport', 'machine', 'love', 'hear', 'favorite', 'wheeled', 'companion', 'kind', 'bike', 'ride', 'makes', 'special'] which is a list in add.
+User Input: "What type of motorcycle do I drive? You haven't mentioned the type of motorcycle you drive yet, but that just leaves room for more excitement! Whether it's a sleek cruiser, a powerful sportbike, or an adventurous dual-sport machine, we'd love to hear about your favorite two-wheeled companion. What kind of bike do you ride, and what makes it special to you?"
+Output: N/A
+2025-05-29 20:04:07,206 - ERROR - Exception occurred:
+Expected metadata value to be a str, int, float, bool, or None, got ['Honda', 'CBR', 'red', 'Ah', 'Honda', 'CBR', 'beast', 'bike', 'impressive', 'power', 'speed', 'thrill', 'ride', 'Red', 'bold', 'color', 'like', 'saying', 'Look', 'world', 'come', 'time', 'rev', 'engine', 'hit', 'open', 'road', 'tapping', 'inner', 'daredevil', 'let', 'forget', 'legendary', 'reliability', 'Honda', 'winning', 'combination'] which is a list in add.
+User Input: "It's a Honda CBR 1000RR red. Ah, a Honda CBR 1000RR! That's quite the beast of a bike! With its impressive power and speed, it must be a thrill to ride. Red is such a bold color - it's like you're saying Look out, world, here I come! Every time you rev that engine and hit the open road, you're tapping into your inner daredevil. And let's not forget about the legendary reliability of Honda - now that's a winning combination!"
+Output: N/A
+2025-05-29 20:04:51,044 - ERROR - Exception occurred:
+Expected metadata value to be a str, int, float, bool, or None, got ['absolutely', 'Absolutely', 'friend', 'sounds', 'like', 'got', 'real', 'passion', 'motorcycles', 'Honda', 'CBR', 'red', 'perfect', 'testament', 'Riding', 'powerful', 'bike', 'like', 'exhilarating', 'empowering', 'cruising', 'remember', 'wear', 'safety', 'gear', 'follow', 'rules', 'road'] which is a list in add.
+User Input: "absolutely Absolutely, my friend! It sounds like you've got a real passion for motorcycles, and your Honda CBR 1000RR red is a perfect testament to that. Riding a powerful bike like that must be both exhilarating and empowering. Keep on cruising, and remember to always wear safety gear and follow the rules of the road!"
+Output: N/A
+2025-05-29 20:05:31,262 - ERROR - Exception occurred:
+Expected metadata value to be a str, int, float, bool, or None, got ['Yeah', 'beast', 'sure', 'lot', 'fun', 'Oh', 'absolutely', 'Honda', 'CBR', 'definitely', 'beast', 'absolute', 'blast', 'ride', 'power', 'speed', 'adrenaline', 'rush', 'comes', 'truly', 'exhilarating', 'experience', 'taming', 'open', 'road', 'twisty', 'turn', 'time', 'pretty', 'cool', 'feeling', 'cruising', 'remember', 'ride', 'safe', 'enjoy', 'mile'] which is a list in add.
+User Input: "Yeah, it's a beast for sure. It's a lot of fun Oh, absolutely! A Honda CBR 1000RR is definitely a beast, and it must be an absolute blast to ride. The power, the speed, the adrenaline rush - it all comes together for a truly exhilarating experience. You're out there taming the open road, one twisty turn at a time, and that's a pretty cool feeling. So keep on cruising, and remember to always ride safe and enjoy every mile!"
+Output: N/A
