@@ -12,6 +12,18 @@ from utils.chroma_utils import (
     save_message_to_chroma, get_relevant_context, get_chat_history
 )
 
+# chroma_utils.py
+
+def save_global_fact(fact_text):
+    collection = chromadb_client.get_or_create_collection("global_knowledge")
+    collection.add(documents=[fact_text], ids=[str(uuid4())])
+
+def get_global_context(query_text):
+    collection = chromadb_client.get_collection("global_knowledge")
+    results = collection.query(query_texts=[query_text], n_results=5)
+    return results["documents"][0] if results["documents"] else []
+
+
 # Initialize
 app = Flask(__name__)
 app.secret_key = "super_secret_key"  # Use env variable in production
@@ -169,4 +181,4 @@ def serve_images(filename):
 
 # ---------- Run ----------
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5001)

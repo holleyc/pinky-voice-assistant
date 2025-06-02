@@ -2,3 +2,5 @@ chroma_db/*
 user_profiles/*
 venv
 venv/bin/activate.csh
+utils/__pycache__/qr_utils.cpython-310.pyc
+utils/__pycache__/chroma_utils.cpython-310.pyc
