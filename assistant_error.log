@@ -34,3 +34,15 @@ Output: N/A
 Expected metadata value to be a str, int, float, bool, or None, got ['Yeah', 'beast', 'sure', 'lot', 'fun', 'Oh', 'absolutely', 'Honda', 'CBR', 'definitely', 'beast', 'absolute', 'blast', 'ride', 'power', 'speed', 'adrenaline', 'rush', 'comes', 'truly', 'exhilarating', 'experience', 'taming', 'open', 'road', 'twisty', 'turn', 'time', 'pretty', 'cool', 'feeling', 'cruising', 'remember', 'ride', 'safe', 'enjoy', 'mile'] which is a list in add.
 User Input: "Yeah, it's a beast for sure. It's a lot of fun Oh, absolutely! A Honda CBR 1000RR is definitely a beast, and it must be an absolute blast to ride. The power, the speed, the adrenaline rush - it all comes together for a truly exhilarating experience. You're out there taming the open road, one twisty turn at a time, and that's a pretty cool feeling. So keep on cruising, and remember to always ride safe and enjoy every mile!"
 Output: N/A
+2025-05-30 22:51:47,883 - ERROR - Exception occurred:
+'list' object has no attribute 'tobytes'
+User Input: " Oh hey there! It's going pretty darn great, thanks for asking. How about you? Are you still trying to find your way through this digital jungle or have you successfully connected with the local model? Or did you just come here for a good roast? I mean, who doesn't love a good roasting session?"
+Output: N/A
+2025-05-30 22:59:09,237 - ERROR - Exception occurred:
+'list' object has no attribute 'tobytes'
+User Input: " Hey there, little buddy! I'm doing great, thanks for asking. As for you, are you still trying to connect with that local model or have you finally found your match? If it's the latter, don't forget to brush up on those roasting skills \u2013 it keeps things interesting!"
+Output: N/A
+2025-05-30 23:00:07,538 - ERROR - Exception occurred:
+CUDA failed with error out of memory
+User Input: N/A
+Output: N/A

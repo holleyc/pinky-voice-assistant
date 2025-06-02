@@ -123,7 +123,7 @@ def get_tts_audio(text):
     if key in tts_cache:
         return tts_cache[key]
     try:
-        audio = tts.tts(cleaned, speaker="p280", speed=0.70)
+        audio = tts.tts(cleaned, speaker="p280", speed=0.75)
         tts_cache[key] = audio
         return audio
     except Exception as e:

@@ -63,6 +63,19 @@ def init_chat():
     response.set_cookie("user_id", user_id, max_age=60 * 60 * 24 * 365 * 5)
     return response
 
+def extract_lexical_facts(text):
+    # This could use regex, spaCy, or LLM-based entity extraction
+    return ["Fact 1", "Fact 2"]  # Return list of facts/relations
+
+def save_lexical_facts(user_id, facts):
+    # Save to a Chroma collection (or other DB) named e.g. f"{user_id}_lexical"
+    pass
+
+def get_lexical_context(user_id, user_input):
+    # Search for semantically relevant lexical entries
+    return ["Previously saved fact or knowledge"]
+
+
 @app.route("/chat", methods=["POST"])
 def chat():
     user_input = request.json.get("message", "")
@@ -71,25 +84,43 @@ def chat():
 
     save_message_to_chroma(user_id, "user", user_input)
 
+    # Handle name learning
     if not user_name:
         save_user_name(user_id, user_input)
         return jsonify({"response": f"Nice to meet you, {user_input}!"})
 
-    context = get_relevant_context(user_id, user_input)
-    messages = context + [{"role": "user", "content": user_input}]
+    # 🔍 Fetch vector-based memory (chat context)
+    chat_context = get_relevant_context(user_id, user_input)
+
+    # 📚 Fetch lexical memory (facts, entities, knowledge)
+    lexical_facts = get_lexical_context(user_id, user_input)
+    lexical_context = [{"role": "system", "content": f"Relevant knowledge: {fact}"} for fact in lexical_facts]
+
+    # Build full message history
+    messages = lexical_context + chat_context + [{"role": "user", "content": user_input}]
 
     try:
         response = chat_with_ollama(messages)
         if not response:
             return jsonify({"response": "⚠️ Empty or malformed LLM response."})
+
+        # 💾 Save assistant reply to chat history
         save_message_to_chroma(user_id, "assistant", response)
+
+        # 🧠 Extract and store lexical knowledge from response
+        lexical_data = extract_lexical_facts(response)
+        if lexical_data:
+            save_lexical_facts(user_id, lexical_data)
+
         return jsonify({"response": response})
+
     except requests.ConnectionError:
         return jsonify({"response": "⚠️ Could not connect to Ollama."})
     except requests.HTTPError as e:
         return jsonify({"response": f"⚠️ Ollama HTTP error: {e}"}), 500
     except Exception as e:
         return jsonify({"response": f"⚠️ Unexpected error: {e}"}), 500
+
 
 @app.route("/ollama_healthcheck")
 def ollama_healthcheck():
