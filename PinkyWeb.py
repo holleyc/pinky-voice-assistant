@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+from memory import (
+    get_user_profile, update_user_fact,
+    query_user_memory, add_user_memory,
+    query_global_memory, add_global_memory
+)
+
 from flask import (
     Flask, request, jsonify, render_template,
     session, make_response, send_from_directory
@@ -86,6 +92,12 @@ def save_lexical_facts(user_id, facts):
 def get_lexical_context(user_id, user_input):
     # Search for semantically relevant lexical entries
     return ["Previously saved fact or knowledge"]
+
+@app.route("/profile")
+def view_profile():
+    user_id = request.cookies.get("uuid")
+    profile = get_user_profile(user_id)
+    return jsonify(profile)
 
 
 @app.route("/chat", methods=["POST"])
