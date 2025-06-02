@@ -3,8 +3,9 @@ import json
 import threading
 import time
 from typing import List, Dict, Optional
+
 from chromadb import Client
-from chromadb.config import Settings
+
 from chromadb.utils import embedding_functions
 
 # ---- CONFIG ----
@@ -15,10 +16,10 @@ os.makedirs(CHROMA_DIR, exist_ok=True)
 PROFILE_STORE_PATH = "./user_profiles.json"  # JSON file path
 
 # Initialize Chroma client (persistent on disk)
-chroma_client = Client(Settings(
-    chroma_db_impl="duckdb+parquet",
-    persist_directory=CHROMA_DIR
-))
+chroma_client = Client(
+    persist_directory="./chroma_persist",
+    chroma_db_impl="duckdb+parquet"
+)
 
 embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 
