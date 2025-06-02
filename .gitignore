@@ -136,9 +136,7 @@ Desktop.ini
 *.env
 .env.*
 secrets.*
-chroma_db
-chroma_persist
-user_profiles.json
-user_profiles/hey.json
-user_profiles/hello.json
-user_profiles/christopher.json
+user_profiles/*.json
+chroma_db/
+chroma_persist/
+
