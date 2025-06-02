@@ -117,36 +117,38 @@ from memory import (
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    user_input = request.json.get("message", "")
-    user_id = get_user_id()  # your method to get user id
-
-    # Get user profile facts (like saved name)
-    user_profile = get_user_profile(user_id)
-    user_name = user_profile.get("facts", {}).get("name", None)
-
-    # Save user's message to vector user memory
-    add_user_memory(user_id, user_input, metadata={"role": "user"})
-
-    # If no user name known yet, treat first message as name
-    if not user_name:
-        update_user_fact(user_id, "name", user_input)
-        return jsonify({"response": f"Nice to meet you, {user_input}!"})
-
-    # Retrieve vector memory (chat history + relevant user data)
-    user_mem_results = query_user_memory(user_id, user_input, n_results=5)
-    global_mem_results = query_global_memory(user_input, n_results=3)
-
-    # Prepare chat context from vector memory results
-    chat_context = []
-    for doc in user_mem_results.get("documents", [[]])[0]:
-        chat_context.append({"role": "system", "content": doc})
-    for doc in global_mem_results.get("documents", [[]])[0]:
-        chat_context.append({"role": "system", "content": doc})
-
-    # Build message list for LLM, including user input
-    messages = chat_context + [{"role": "user", "content": user_input}]
-
     try:
+        user_input = request.json.get("message", "")
+        user_id = get_user_id()  # your method to get user id
+
+        print(f"[chat] user_id: {user_id}, input: {user_input}")
+
+        # Get user profile facts (like saved name)
+        user_profile = get_user_profile(user_id)
+        user_name = user_profile.get("facts", {}).get("name", None)
+
+        # Save user's message to vector user memory
+        add_user_memory(user_id, user_input, metadata={"role": "user"})
+
+        # If no user name known yet, treat first message as name
+        if not user_name:
+            update_user_fact(user_id, "name", user_input)
+            return jsonify({"response": f"Nice to meet you, {user_input}!"})
+
+        # Retrieve vector memory (chat history + relevant user data)
+        user_mem_results = query_user_memory(user_id, user_input, n_results=5)
+        global_mem_results = query_global_memory(user_input, n_results=3)
+
+        # Prepare chat context from vector memory results
+        chat_context = []
+        for doc in user_mem_results.get("documents", [[]])[0]:
+            chat_context.append({"role": "system", "content": doc})
+        for doc in global_mem_results.get("documents", [[]])[0]:
+            chat_context.append({"role": "system", "content": doc})
+
+        # Build message list for LLM, including user input
+        messages = chat_context + [{"role": "user", "content": user_input}]
+
         response = chat_with_ollama(messages)
         if not response:
             return jsonify({"response": "⚠️ Empty or malformed LLM response."})
@@ -155,20 +157,33 @@ def chat():
         add_user_memory(user_id, response, metadata={"role": "assistant"})
 
         # Optionally: extract lexical facts from response and update profile
-        lexical_data = extract_lexical_facts(response)  # your existing method
+        lexical_data = extract_lexical_facts(response)
+        print(f"[chat] Lexical facts: {lexical_data}")
         if lexical_data:
-            for key, value in lexical_data.items():
+            
+            lexical_data = extract_lexical_facts(user_input)
+            print(f"[chat] Lexical facts: {lexical_data}")
+
+            if isinstance(lexical_data, dict):
+                for key, value in lexical_data.items():
+                    update_user_fact(user_id, key, value)
+            else:
+                print(f"[chat] Warning: extract_lexical_facts returned non-dict: {type(lexical_data)}")
+
+
                 update_user_fact(user_id, key, value)
 
         return jsonify({"response": response})
 
     except requests.ConnectionError:
-        return jsonify({"response": "⚠️ Could not connect to Ollama."})
+        print("[chat] ERROR: Ollama connection error")
+        return jsonify({"response": "⚠️ Could not connect to Ollama."}), 503
     except requests.HTTPError as e:
+        print(f"[chat] ERROR: Ollama HTTP error: {e}")
         return jsonify({"response": f"⚠️ Ollama HTTP error: {e}"}), 500
     except Exception as e:
+        print(f"[chat] ERROR: Unexpected error: {e}")
         return jsonify({"response": f"⚠️ Unexpected error: {e}"}), 500
-
 
 
 
