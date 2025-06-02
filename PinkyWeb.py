@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
 
-from memory import (
-    get_user_profile, update_user_fact,
-    query_user_memory, add_user_memory,
-    query_global_memory, add_global_memory
-)
-
 from flask import (
     Flask, request, jsonify, render_template,
     session, make_response, send_from_directory
@@ -100,41 +94,84 @@ def view_profile():
     return jsonify(profile)
 
 
+from memory import (
+    get_user_profile, update_user_fact,
+    query_user_memory, add_user_memory,
+    query_global_memory, add_global_memory
+)
+
 @app.route("/chat", methods=["POST"])
 def chat():
     user_input = request.json.get("message", "")
     user_id = get_user_id()
     user_name = get_saved_user_name(user_id)
 
-    save_message_to_chroma(user_id, "user", user_input)
+    # Save user input to user memory (ChromaDB)
+    add_user_memory(user_id, f"User: {user_input}")
 
     # Handle name learning
     if not user_name:
-        save_user_name(user_id, user_input)
-        return jsonify({"response": f"Nice to meet you, {user_input}!"})
+        # Try to extract a name from input (basic)
+        if "my name is" in user_input.lower():
+            name = user_input.lower().split("my name is")[-1].strip().split(" ")[0].capitalize()
+            save_user_name(user_id, name)
+            update_user_fact(user_id, "name", name)
+            add_user_memory(user_id, f"My name is {name}.", metadata={"type": "fact"})
+            return jsonify({"response": f"Nice to meet you, {name}!"})
+        else:
+            # fallback if no name detected yet
+            save_user_name(user_id, user_input)
+            update_user_fact(user_id, "name", user_input)
+            add_user_memory(user_id, f"My name is {user_input}.", metadata={"type": "fact"})
+            return jsonify({"response": f"Nice to meet you, {user_input}!"})
 
-    # 🔍 Fetch vector-based memory (chat context)
-    chat_context = get_relevant_context(user_id, user_input)
+    # 🔍 Query vector memory for user context
+    user_memory_results = query_user_memory(user_id, user_input)
+    if not user_memory_results['documents']:
+        # fallback to global memory if user memory empty
+        memory_results = query_global_memory(user_input)
+    else:
+        memory_results = user_memory_results
 
-    # 📚 Fetch lexical memory (facts, entities, knowledge)
+    # Prepare memory context string for LLM prompt
+    memory_context = ""
+    if memory_results['documents']:
+        memory_context = "\n".join(memory_results['documents'][0])  # first match set
+
+    # Include user profile facts in context
+    profile = get_user_profile(user_id)
+    facts_prompt = "\n".join([f"My {k} is {v}." for k, v in profile.get("facts", {}).items()])
+
+    # Build full message list for LLM
     lexical_facts = get_lexical_context(user_id, user_input)
     lexical_context = [{"role": "system", "content": f"Relevant knowledge: {fact}"} for fact in lexical_facts]
 
-    # Build full message history
-    messages = lexical_context + chat_context + [{"role": "user", "content": user_input}]
+    chat_context = get_relevant_context(user_id, user_input)  # your existing function
+
+    messages = lexical_context + chat_context + [
+        {"role": "system", "content": facts_prompt},
+        {"role": "system", "content": memory_context},
+        {"role": "user", "content": user_input}
+    ]
 
     try:
         response = chat_with_ollama(messages)
         if not response:
             return jsonify({"response": "⚠️ Empty or malformed LLM response."})
 
-        # 💾 Save assistant reply to chat history
-        save_message_to_chroma(user_id, "assistant", response)
+        # Save assistant reply to user memory
+        add_user_memory(user_id, f"Assistant: {response}")
 
-        # 🧠 Extract and store lexical knowledge from response
+        # Extract lexical facts from response and save to user facts & memory
         lexical_data = extract_lexical_facts(response)
         if lexical_data:
             save_lexical_facts(user_id, lexical_data)
+            # Also update user facts for each lexical fact
+            for fact in lexical_data:
+                key_val = fact.split(":") if ":" in fact else [fact, ""]
+                if len(key_val) == 2:
+                    key, val = key_val
+                    update_user_fact(user_id, key.strip().lower(), val.strip())
 
         return jsonify({"response": response})
 
@@ -144,6 +181,7 @@ def chat():
         return jsonify({"response": f"⚠️ Ollama HTTP error: {e}"}), 500
     except Exception as e:
         return jsonify({"response": f"⚠️ Unexpected error: {e}"}), 500
+
 
 
 @app.route("/ollama_healthcheck")
