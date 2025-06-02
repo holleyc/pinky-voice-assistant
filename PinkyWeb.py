@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
 
-from memory import (
-    get_user_profile,
-    update_user_fact,
-    add_user_memory,
-    query_user_memory,
-    add_global_memory,
-    query_global_memory,
-    save_profiles_to_disk  # Optional manual save trigger
-)
-
-import atexit
-
-atexit.register(save_profiles_to_disk)
-
+import os
+import json
+import tempfile
+import requests
+import whisper
+from uuid import uuid4
 
 from flask import (
     Flask, request, jsonify, render_template,
     session, make_response, send_from_directory
 )
-import requests, tempfile, whisper
+
+from memory import (
+    get_user_profile, update_user_fact,
+    query_user_memory, add_user_memory,
+    query_global_memory, add_global_memory,
+    save_profiles_to_disk  # Optional manual save trigger
+)
+
+import atexit
+atexit.register(save_profiles_to_disk)
 
 from utils.qr_utils import generate_qr_base64
 from utils.chroma_utils import (
@@ -27,25 +28,39 @@ from utils.chroma_utils import (
     save_message_to_chroma, get_relevant_context, get_chat_history
 )
 
-# chroma_utils.py
-
-def save_global_fact(fact_text):
-    collection = chromadb_client.get_or_create_collection("global_knowledge")
-    collection.add(documents=[fact_text], ids=[str(uuid4())])
-
-def get_global_context(query_text):
-    collection = chromadb_client.get_collection("global_knowledge")
-    results = collection.query(query_texts=[query_text], n_results=5)
-    return results["documents"][0] if results["documents"] else []
-
-
-# Initialize
+# Globals
 app = Flask(__name__)
 app.secret_key = "super_secret_key"  # Use env variable in production
+
 model = whisper.load_model("base")
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
-# ---------- Helper Functions ----------
+USER_PROFILES_DIR = "user_profiles"
+
+# --- User Profile Helpers ---
+
+def get_user_profile(user_id):
+    if not os.path.exists(USER_PROFILES_DIR):
+        os.makedirs(USER_PROFILES_DIR)
+    profile_path = os.path.join(USER_PROFILES_DIR, f"{user_id}.json")
+    if os.path.exists(profile_path):
+        with open(profile_path, "r") as f:
+            return json.load(f)
+    else:
+        # Create new default profile
+        profile = {"facts": {}, "memories": []}
+        save_profile_to_disk(user_id, profile)
+        return profile
+
+def save_profile_to_disk(user_id, profile):
+    if not os.path.exists(USER_PROFILES_DIR):
+        os.makedirs(USER_PROFILES_DIR)
+    profile_path = os.path.join(USER_PROFILES_DIR, f"{user_id}.json")
+    with open(profile_path, "w") as f:
+        json.dump(profile, f, indent=2)
+
+# --- Helper Functions ---
+
 def get_user_id():
     return session.setdefault("user_id", get_or_create_user_id(request))
 
@@ -55,7 +70,13 @@ def chat_with_ollama(messages):
     response.raise_for_status()
     return response.json().get("message", {}).get("content", "")
 
-# ---------- Routes ----------
+def extract_lexical_facts(text):
+    # Replace this with real NLP or LLM-based fact extraction
+    return ["Fact 1", "Fact 2"]  # Dummy placeholder
+
+
+# --- Routes ---
+
 @app.route("/")
 def index():
     return render_template("chat.html")
@@ -90,63 +111,43 @@ def init_chat():
     response.set_cookie("user_id", user_id, max_age=60 * 60 * 24 * 365 * 5)
     return response
 
-def extract_lexical_facts(text):
-    # This could use regex, spaCy, or LLM-based entity extraction
-    return ["Fact 1", "Fact 2"]  # Return list of facts/relations
-
-def save_lexical_facts(user_id, facts):
-    # Save to a Chroma collection (or other DB) named e.g. f"{user_id}_lexical"
-    pass
-
-def get_lexical_context(user_id, user_input):
-    # Search for semantically relevant lexical entries
-    return ["Previously saved fact or knowledge"]
-
 @app.route("/profile")
 def view_profile():
     user_id = request.cookies.get("uuid")
     profile = get_user_profile(user_id)
     return jsonify(profile)
 
-
-from memory import (
-    get_user_profile, update_user_fact,
-    query_user_memory, add_user_memory,
-    query_global_memory, add_global_memory
-)
-
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         user_input = request.json.get("message", "")
-        user_id = get_user_id()  # your method to get user id
+        user_id = get_user_id()
 
         print(f"[chat] user_id: {user_id}, input: {user_input}")
 
-        # Get user profile facts (like saved name)
+        # Load or create user profile
         user_profile = get_user_profile(user_id)
-        user_name = user_profile.get("facts", {}).get("name", None)
+        user_name = user_profile.get("facts", {}).get("name")
 
         # Save user's message to vector user memory
         add_user_memory(user_id, user_input, metadata={"role": "user"})
 
         # If no user name known yet, treat first message as name
         if not user_name:
-            update_user_fact(user_id, "name", user_input)
+            user_profile["facts"]["name"] = user_input
+            save_profile_to_disk(user_id, user_profile)
             return jsonify({"response": f"Nice to meet you, {user_input}!"})
 
         # Retrieve vector memory (chat history + relevant user data)
         user_mem_results = query_user_memory(user_id, user_input, n_results=5)
         global_mem_results = query_global_memory(user_input, n_results=3)
 
-        # Prepare chat context from vector memory results
         chat_context = []
         for doc in user_mem_results.get("documents", [[]])[0]:
             chat_context.append({"role": "system", "content": doc})
         for doc in global_mem_results.get("documents", [[]])[0]:
             chat_context.append({"role": "system", "content": doc})
 
-        # Build message list for LLM, including user input
         messages = chat_context + [{"role": "user", "content": user_input}]
 
         response = chat_with_ollama(messages)
@@ -156,22 +157,20 @@ def chat():
         # Save assistant reply to user memory
         add_user_memory(user_id, response, metadata={"role": "assistant"})
 
-        # Optionally: extract lexical facts from response and update profile
+        # Extract lexical facts and update profile if applicable
         lexical_data = extract_lexical_facts(response)
         print(f"[chat] Lexical facts: {lexical_data}")
+
         if lexical_data:
-            
             lexical_data = extract_lexical_facts(user_input)
             print(f"[chat] Lexical facts: {lexical_data}")
 
             if isinstance(lexical_data, dict):
                 for key, value in lexical_data.items():
-                    update_user_fact(user_id, key, value)
+                    user_profile["facts"][key] = value
+                save_profile_to_disk(user_id, user_profile)
             else:
                 print(f"[chat] Warning: extract_lexical_facts returned non-dict: {type(lexical_data)}")
-
-
-                update_user_fact(user_id, key, value)
 
         return jsonify({"response": response})
 
@@ -184,8 +183,6 @@ def chat():
     except Exception as e:
         print(f"[chat] ERROR: Unexpected error: {e}")
         return jsonify({"response": f"⚠️ Unexpected error: {e}"}), 500
-
-
 
 @app.route("/ollama_healthcheck")
 def ollama_healthcheck():
@@ -232,6 +229,6 @@ def reset():
 def serve_images(filename):
     return send_from_directory('images', filename)
 
-# ---------- Run ----------
+# --- Run ---
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5001)
