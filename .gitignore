@@ -135,8 +135,8 @@ Desktop.ini
 # Secret files
 *.env
 .env.*
-secrets.*
-user_profiles/*.json
+
+# Project-specific folders/files to ignore
 chroma_db/
 chroma_persist/
-
+user_profiles/*.json
