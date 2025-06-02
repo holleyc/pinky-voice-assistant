@@ -1,4 +1,7 @@
 import os
+import json
+import threading
+import time
 from typing import List, Dict, Optional
 from chromadb import Client
 from chromadb.config import Settings
@@ -9,20 +12,19 @@ from chromadb.utils import embedding_functions
 CHROMA_DIR = "./chroma_data"
 os.makedirs(CHROMA_DIR, exist_ok=True)
 
+PROFILE_STORE_PATH = "./user_profiles.json"  # JSON file path
+
 # Initialize Chroma client (persistent on disk)
 chroma_client = Client(Settings(
     chroma_db_impl="duckdb+parquet",
     persist_directory=CHROMA_DIR
 ))
 
-# Embedding function (replace with your actual embedding model, e.g. SentenceTransformer)
 embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 
-# Collections:
 USER_MEM_COLLECTION = "user_memory"
 GLOBAL_MEM_COLLECTION = "global_memory"
 
-# Create or get collections
 try:
     user_mem_col = chroma_client.get_collection(USER_MEM_COLLECTION, embedding_function=embedding_fn)
 except:
@@ -33,11 +35,51 @@ try:
 except:
     global_mem_col = chroma_client.create_collection(GLOBAL_MEM_COLLECTION, embedding_function=embedding_fn)
 
-
-# --- USER PROFILE STORAGE ---
-
-# Simple in-memory dict for user facts: { user_id: { fact_key: fact_value, ... } }
+# --- USER PROFILES IN MEMORY ---
 _user_profiles: Dict[str, Dict[str, str]] = {}
+
+# --- LOAD/ SAVE USER PROFILES ---
+
+
+def load_profiles_from_disk():
+    global _user_profiles
+    try:
+        with open(PROFILE_STORE_PATH, "r") as f:
+            _user_profiles = json.load(f)
+        print(f"[memory.py] Loaded profiles for users: {list(_user_profiles.keys())}")
+    except FileNotFoundError:
+        _user_profiles = {}
+        print("[memory.py] No profile file found. Starting with empty profiles.")
+    except json.JSONDecodeError as e:
+        _user_profiles = {}
+        print(f"[memory.py] JSON decode error loading profiles: {e}. Starting fresh.")
+
+
+def save_profiles_to_disk():
+    try:
+        with open(PROFILE_STORE_PATH, "w") as f:
+            json.dump(_user_profiles, f, indent=2)
+        print("[memory.py] User profiles saved to disk.")
+    except Exception as e:
+        print(f"[memory.py] Error saving profiles: {e}")
+
+
+# --- AUTOSAVE THREAD ---
+
+def _autosave_worker(interval=60):
+    while True:
+        time.sleep(interval)
+        save_profiles_to_disk()
+        # Optionally: print or log autosave event
+        print("[memory.py] Autosave complete.")
+
+
+def start_autosave(interval=60):
+    t = threading.Thread(target=_autosave_worker, args=(interval,), daemon=True)
+    t.start()
+
+
+# --- USER PROFILE FUNCTIONS ---
 
 
 def get_user_profile(user_id: str) -> Dict:
@@ -50,17 +92,16 @@ def update_user_fact(user_id: str, key: str, value: str):
     if user_id not in _user_profiles:
         _user_profiles[user_id] = {"facts": {}}
     _user_profiles[user_id]["facts"][key] = value
+    # save_profiles_to_disk()  # Removed immediate save, rely on autosave
 
 
 # --- USER MEMORY FUNCTIONS ---
 
 
 def add_user_memory(user_id: str, text: str, metadata: Optional[Dict] = None):
-    """Add a text snippet to the user's memory collection with optional metadata."""
     if metadata is None:
         metadata = {}
 
-    # Use user_id as a metadata field to filter later
     metadata["user_id"] = user_id
 
     user_mem_col.add(
@@ -72,7 +113,6 @@ def add_user_memory(user_id: str, text: str, metadata: Optional[Dict] = None):
 
 
 def query_user_memory(user_id: str, query_text: str, n_results: int = 5) -> Dict:
-    """Query the user memory collection filtered by user_id and return top docs."""
     results = user_mem_col.query(
         query_texts=[query_text],
         n_results=n_results,
@@ -85,7 +125,6 @@ def query_user_memory(user_id: str, query_text: str, n_results: int = 5) -> Dict
 
 
 def add_global_memory(text: str, metadata: Optional[Dict] = None):
-    """Add a text snippet to the global memory collection."""
     if metadata is None:
         metadata = {}
 
@@ -98,9 +137,14 @@ def add_global_memory(text: str, metadata: Optional[Dict] = None):
 
 
 def query_global_memory(query_text: str, n_results: int = 5) -> Dict:
-    """Query the global memory collection and return top docs."""
     results = global_mem_col.query(
         query_texts=[query_text],
         n_results=n_results
     )
     return results
+
+
+# --- INIT ---
+
+load_profiles_from_disk()
+start_autosave(interval=60)  # autosave every 60 seconds
