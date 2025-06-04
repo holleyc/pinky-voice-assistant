@@ -28,6 +28,8 @@ from utils.chroma_utils import (
     save_message_to_chroma, get_relevant_context, get_chat_history
 )
 
+from utils.chroma_utils import get_global_context
+
 # Register profile save on exit
 atexit.register(save_profiles_to_disk)
 
@@ -140,63 +142,55 @@ def view_profile():
     profile = get_user_profile(user_id)
     return jsonify(profile)
 
+@app.route("/upload_global_facts", methods=["POST"])
+def upload_global_facts():
+    if not request.json or "facts" not in request.json:
+        return jsonify({"error": "Provide JSON with a 'facts' list"}), 400
+
+    facts = request.json["facts"]
+    for fact in facts:
+        save_global_fact(fact)
+    return jsonify({"message": f"✅ {len(facts)} facts saved to global knowledge base."})
+
+
 @app.route("/chat", methods=["POST"])
 def chat():
+    user_input = request.json.get("message", "")
+    user_id = get_user_id()
+    user_name = get_saved_user_name(user_id)
+
+    save_message_to_chroma(user_id, "user", user_input)
+
+    # Handle name learning
+    if not user_name:
+        save_user_name(user_id, user_input)
+        return jsonify({"response": f"Nice to meet you, {user_input}!"})
+
+    # Fetch contexts
+    chat_context = get_relevant_context(user_id, user_input)
+    lexical_facts = get_lexical_context(user_id, user_input)
+    lexical_context = [{"role": "system", "content": f"Relevant knowledge: {fact}"} for fact in lexical_facts]
+    global_context_facts = get_global_context(user_input)
+    global_context = [{"role": "system", "content": f"Shared knowledge: {fact}"} for fact in global_context_facts]
+
+    # Build full message history
+    messages = global_context + lexical_context + chat_context + [{"role": "user", "content": user_input}]
+
     try:
-        user_input = request.json.get("message", "")
-        user_id = get_user_id()
-
-        if not user_id:
-            return jsonify({"response": "⚠️ User ID not found."}), 400
-
-        print(f"[chat] user_id: {user_id}, input: {user_input}")
-
-        user_profile = get_user_profile(user_id)
-        user_name = user_profile.get("facts", {}).get("name")
-
-        add_user_memory(user_id, user_input, metadata={"role": "user"})
-
-        if not user_name:
-            user_profile["facts"]["name"] = user_input
-            save_profile_to_disk(user_id, user_profile)
-            return jsonify({"response": f"Nice to meet you, {user_input}!"})
-
-        user_mem_results = query_user_memory(user_id, user_input, n_results=5)
-        global_mem_results = query_global_memory(user_input, n_results=3)
-
-        chat_context = [
-            {"role": "system", "content": doc}
-            for doc in user_mem_results.get("documents", [[]])[0]
-        ] + [
-            {"role": "system", "content": doc}
-            for doc in global_mem_results.get("documents", [[]])[0]
-        ]
-
-        messages = chat_context + [{"role": "user", "content": user_input}]
         response = chat_with_ollama(messages)
-
         if not response:
             return jsonify({"response": "⚠️ Empty or malformed LLM response."})
 
-        add_user_memory(user_id, response, metadata={"role": "assistant"})
+        save_message_to_chroma(user_id, "assistant", response)
 
-        lexical_data = extract_lexical_facts(user_input)
-        print(f"[chat] Extracted lexical facts: {lexical_data}")
+        lexical_data = extract_lexical_facts(response)
+        if lexical_data:
+            save_lexical_facts(user_id, lexical_data)
 
-        if isinstance(lexical_data, dict) and lexical_data:
-            for key, value in lexical_data.items():
-                if value:
-                    update_user_fact(user_id, key, value)
-            save_profile_to_disk(user_id, get_user_profile(user_id))
-
-        # Return both response AND lexical facts
-        return jsonify({
-            "response": response,
-            "lexical_facts": lexical_data or {}
-        })
+        return jsonify({"response": response})
 
     except requests.ConnectionError:
-        return jsonify({"response": "⚠️ Could not connect to Ollama."}), 503
+        return jsonify({"response": "⚠️ Could not connect to Ollama."})
     except requests.HTTPError as e:
         return jsonify({"response": f"⚠️ Ollama HTTP error: {e}"}), 500
     except Exception as e:

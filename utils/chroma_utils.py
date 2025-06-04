@@ -4,6 +4,24 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Optional
 
+# utils/chroma_utils.py
+
+from uuid import uuid4
+from chromadb import Client
+
+# Initialize Chroma client
+chroma_client = Client()
+
+def save_global_fact(fact_text):
+    collection = chroma_client.get_or_create_collection("global_knowledge")
+    collection.add(documents=[fact_text], ids=[str(uuid4())])
+
+def get_global_context(query_text):
+    collection = chroma_client.get_collection("global_knowledge")
+    results = collection.query(query_texts=[query_text], n_results=5)
+    return results["documents"][0] if results["documents"] else []
+
+
 # === CONFIGURATION ===
 CHROMA_DB_PATH = "./chroma_db"
 COLLECTION_NAME = "Pinkys_Brain"
