@@ -30,6 +30,13 @@ from utils.chroma_utils import (
 
 from utils.chroma_utils import get_global_context
 
+from utils.chroma_utils import (
+    get_or_create_user_id, save_user_name, get_saved_user_name,
+    save_message_to_chroma, get_relevant_context, get_chat_history,
+    save_lexical_facts, get_lexical_context  # ✅ add these
+)
+
+
 # Register profile save on exit
 atexit.register(save_profiles_to_disk)
 

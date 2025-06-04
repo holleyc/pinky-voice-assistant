@@ -9,17 +9,23 @@ from typing import List, Dict, Optional
 from uuid import uuid4
 from chromadb import Client
 
-# Initialize Chroma client
+# Ensure this is created once and reused
 chroma_client = Client()
 
-def save_global_fact(fact_text):
-    collection = chroma_client.get_or_create_collection("global_knowledge")
-    collection.add(documents=[fact_text], ids=[str(uuid4())])
+def save_lexical_facts(user_id, facts):
+    collection = chroma_client.get_or_create_collection(f"{user_id}_lexical")
+    for fact in facts:
+        collection.add(documents=[fact], ids=[str(uuid4())])
 
-def get_global_context(query_text):
-    collection = chroma_client.get_collection("global_knowledge")
-    results = collection.query(query_texts=[query_text], n_results=5)
-    return results["documents"][0] if results["documents"] else []
+def get_lexical_context(user_id, query_text, n_results=5):
+    try:
+        collection = chroma_client.get_collection(f"{user_id}_lexical")
+        results = collection.query(query_texts=[query_text], n_results=n_results)
+        return results["documents"][0] if results["documents"] else []
+    except ValueError:
+        # Collection might not exist yet
+        return []
+
 
 
 # === CONFIGURATION ===
