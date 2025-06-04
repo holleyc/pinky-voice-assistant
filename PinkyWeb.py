@@ -70,9 +70,23 @@ def chat_with_ollama(messages):
     response.raise_for_status()
     return response.json().get("message", {}).get("content", "")
 
+import re
+
+# extract_lexical_facts
+from memory import safe_extract_json
+
 def extract_lexical_facts(text):
-    # Replace this with real NLP or LLM-based fact extraction
-    return ["Fact 1", "Fact 2"]  # Dummy placeholder
+    try:
+        response = chat_with_ollama([
+            {"role": "system", "content": "Extract user facts from the text and return as a compact JSON object. Use keys like name, age, hobby, vehicle, favorite_color. Only output a valid JSON object."},
+            {"role": "user", "content": text}
+        ])
+        return safe_extract_json(response)
+    except Exception as e:
+        print(f"[extract_lexical_facts] ERROR: {e}")
+        return {}
+
+
 
 
 # --- Routes ---
@@ -158,19 +172,14 @@ def chat():
         add_user_memory(user_id, response, metadata={"role": "assistant"})
 
         # Extract lexical facts and update profile if applicable
-        lexical_data = extract_lexical_facts(response)
-        print(f"[chat] Lexical facts: {lexical_data}")
+        lexical_data = extract_lexical_facts(user_input)
+        print(f"[chat] Extracted lexical facts: {lexical_data}")
 
-        if lexical_data:
-            lexical_data = extract_lexical_facts(user_input)
-            print(f"[chat] Lexical facts: {lexical_data}")
+        if isinstance(lexical_data, dict) and lexical_data:
+            for key, value in lexical_data.items():
+                user_profile["facts"][key] = value
+            save_profile_to_disk(user_id, user_profile)
 
-            if isinstance(lexical_data, dict):
-                for key, value in lexical_data.items():
-                    user_profile["facts"][key] = value
-                save_profile_to_disk(user_id, user_profile)
-            else:
-                print(f"[chat] Warning: extract_lexical_facts returned non-dict: {type(lexical_data)}")
 
         return jsonify({"response": response})
 
@@ -231,4 +240,4 @@ def serve_images(filename):
 
 # --- Run ---
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5001)
+    app.run(debug=True, host="0.0.0.0", port=5002)

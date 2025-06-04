@@ -94,6 +94,22 @@ def add_global_memory(text: str, metadata: Optional[Dict] = None):
         ids=[f"global_{os.urandom(8).hex()}"]
     )
 
+    import re
+
+def safe_extract_json(text: str) -> dict:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*?\}", text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except Exception as e:
+                print(f"[safe_extract_json] Nested parse error: {e}")
+        print(f"[safe_extract_json] Failed to parse JSON from: {text}")
+        return {}
+
+
 def query_global_memory(query_text: str, n_results: int = 5) -> Dict:
     return global_mem_col.query(
         query_texts=[query_text],
