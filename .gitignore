@@ -140,3 +140,5 @@ Desktop.ini
 chroma_db/
 chroma_persist/
 user_profiles/*.json
+user_profiles.json
+

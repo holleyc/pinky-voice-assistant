@@ -108,89 +108,107 @@
     <button onclick="startDictation()" id="dictate-button">🎙️ Dictate</button>
   </div>
 
-  <script>
-    async function checkOllamaStatus() {
-      const statusElem = document.getElementById("ollama-status");
-      try {
-        const res = await fetch("/ollama_healthcheck");
-        const data = await res.json();
-        if (data.status === "success") {
-          statusElem.textContent = "🟢 Ollama is online!";
-          statusElem.style.color = "#50fa7b";
-          statusElem.style.fontStyle = "normal";
-        } else {
-          statusElem.textContent = "🔴 Ollama offline: " + data.message;
-          statusElem.style.color = "#ff4d4d";
-          statusElem.style.fontStyle = "italic";
-        }
-      } catch (err) {
-        statusElem.textContent = "🔴 Error checking Ollama status.";
+<script>
+  let userId = localStorage.getItem('user_id');
+  if (!userId) {
+    userId = crypto.randomUUID();
+    localStorage.setItem('user_id', userId);
+  }
+
+  async function checkOllamaStatus() {
+    const statusElem = document.getElementById("ollama-status");
+    try {
+      const res = await fetch("/ollama_healthcheck");
+      const data = await res.json();
+      if (data.status === "success") {
+        statusElem.textContent = "🟢 Ollama is online!";
+        statusElem.style.color = "#50fa7b";
+        statusElem.style.fontStyle = "normal";
+      } else {
+        statusElem.textContent = "🔴 Ollama offline: " + data.message;
         statusElem.style.color = "#ff4d4d";
         statusElem.style.fontStyle = "italic";
       }
+    } catch (err) {
+      statusElem.textContent = "🔴 Error checking Ollama status.";
+      statusElem.style.color = "#ff4d4d";
+      statusElem.style.fontStyle = "italic";
+    }
+  }
+
+  function addMessage(role, message, lexicalFacts = null) {
+    const chatBox = document.getElementById("chat-box");
+    const messageElem = document.createElement("div");
+    messageElem.className = "message";
+    messageElem.innerHTML = `<span class="${role === 'user' ? 'user' : 'ai'}">${role === 'user' ? 'You' : 'Pinky'}:</span> ${message}`;
+
+    if (lexicalFacts && Object.keys(lexicalFacts).length > 0) {
+      const factsElem = document.createElement("pre");
+      factsElem.style.background = "#333";
+      factsElem.style.padding = "0.5rem";
+      factsElem.style.marginTop = "0.3rem";
+      factsElem.style.borderRadius = "4px";
+      factsElem.style.color = "#aaa";
+      factsElem.textContent = `Extracted Facts: ${JSON.stringify(lexicalFacts, null, 2)}`;
+      messageElem.appendChild(factsElem);
     }
 
-    function addMessage(role, message) {
-      const chatBox = document.getElementById("chat-box");
-      const messageElem = document.createElement("div");
-      messageElem.className = "message";
-      messageElem.innerHTML = `<span class="${role === 'user' ? 'user' : 'ai'}">${role === 'user' ? 'You' : 'Pinky'}:</span> ${message}`;
-      chatBox.appendChild(messageElem);
-      chatBox.scrollTop = chatBox.scrollHeight;
+    chatBox.appendChild(messageElem);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById("user-input");
+    const message = input.value.trim();
+    if (!message) return;
+    input.value = "";
+    addMessage("user", message);
+
+    try {
+      const response = await fetch("/chat", {
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message })
+      });
+
+      const data = await response.json();
+      addMessage("ai", data.response, data.lexical_facts);
+    } catch (err) {
+      console.error("Chat error:", err);
+      addMessage("ai", "<span style='color:red;'>Error: Failed to contact backend.</span>");
     }
+  }
 
-    async function sendMessage() {
-      const input = document.getElementById("user-input");
-      const message = input.value.trim();
-      if (!message) return;
-      input.value = "";
-      addMessage("user", message);
-
-      try {
-        const response = await fetch("/chat", {
-          method: "POST",
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message })
-        });
-
-        const data = await response.json();
-        addMessage("ai", data.response);
-      } catch (err) {
-        console.error("Chat error:", err);
-        addMessage("ai", "<span style='color:red;'>Error: Failed to contact backend.</span>");
-      }
+  function handleKey(event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      sendMessage();
     }
+  }
 
-    function handleKey(event) {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        sendMessage();
-      }
+  document.addEventListener("DOMContentLoaded", async () => {
+    await checkOllamaStatus();
+
+    document.getElementById("chat-box").style.display = "block";
+    document.querySelector(".input-container").style.display = "flex";
+    document.getElementById("user-input").focus();
+
+    // Initial greeting or name send
+    addMessage("user", "Friend");
+    try {
+      const response = await fetch("/chat", {
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: "Friend" })
+      });
+      const data = await response.json();
+      addMessage("ai", data.response, data.lexical_facts);
+    } catch (err) {
+      console.error("Init chat error:", err);
     }
+  });
+</script>
 
-    document.addEventListener("DOMContentLoaded", async () => {
-      await checkOllamaStatus();
-
-      // Show UI immediately
-      document.getElementById("chat-box").style.display = "block";
-      document.querySelector(".input-container").style.display = "flex";
-      document.getElementById("user-input").focus();
-
-      // Optionally send a default name to initialize profile
-      addMessage("user", "Friend");
-      try {
-        const response = await fetch("/chat", {
-          method: "POST",
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: "Friend" })
-        });
-        const data = await response.json();
-        addMessage("ai", data.response);
-      } catch (err) {
-        console.error("Init chat error:", err);
-      }
-    });
-  </script>
 
   <script>
     let mediaRecorder;

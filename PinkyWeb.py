@@ -39,9 +39,23 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 
 # --- Helper Functions ---
 def get_user_id():
-    if "user_id" not in session:
-        session["user_id"] = get_or_create_user_id(request)
-    return session["user_id"]
+    # Priority: JSON payload > Cookie > Session > Generate new
+    user_id = (
+        request.json.get("user_id")
+        if request.is_json and "user_id" in request.json
+        else request.cookies.get("user_id")
+        or session.get("user_id")
+    )
+
+    if not user_id:
+        user_id = str(uuid4())
+        print(f"[get_user_id] Generated new user_id: {user_id}")
+    else:
+        print(f"[get_user_id] Using existing user_id: {user_id}")
+
+    session["user_id"] = user_id
+    return user_id
+
 
 def chat_with_ollama(messages):
     payload = {"model": "pinky", "messages": messages, "stream": False}
@@ -49,21 +63,39 @@ def chat_with_ollama(messages):
     response.raise_for_status()
     return response.json().get("message", {}).get("content", "")
 
-def extract_lexical_facts(text):
-    try:
-        response = chat_with_ollama([
-            {"role": "system", "content": (
-                "Extract user facts from the text and return as a compact JSON object. "
-                "Use keys like name, age, hobby, vehicle, favorite_color. "
-                "Only output a valid JSON object. Do not extract filler words. "
-                "If no facts are found, return an empty JSON object."
-            )},
-            {"role": "user", "content": text}
-        ])
-        return safe_extract_json(response)
-    except Exception as e:
-        print(f"[extract_lexical_facts] ERROR: {e}")
-        return {}
+import re
+
+def extract_lexical_facts(user_input):
+    facts = {}
+    # Patterns for name
+    name_patterns = [
+        r"my name is (\w+)",
+        r"i am (\w+)",
+        r"call me (\w+)"
+    ]
+    for pattern in name_patterns:
+        match = re.search(pattern, user_input, re.IGNORECASE)
+        if match:
+            facts['name'] = match.group(1)
+            break
+
+    # Pattern for age
+    age_match = re.search(r"my age is (\d+)", user_input, re.IGNORECASE)
+    if age_match:
+        facts['age'] = int(age_match.group(1))
+
+    # Pattern for favorite color
+    color_match = re.search(r"my favorite color is (\w+)", user_input, re.IGNORECASE)
+    if color_match:
+        facts['favorite_color'] = color_match.group(1)
+
+    # Pattern for vehicle
+    vehicle_match = re.search(r"i drive a (\w+)", user_input, re.IGNORECASE)
+    if vehicle_match:
+        facts['vehicle'] = vehicle_match.group(1)
+
+    return facts
+
 
 # --- Routes ---
 @app.route("/")
@@ -153,10 +185,15 @@ def chat():
 
         if isinstance(lexical_data, dict) and lexical_data:
             for key, value in lexical_data.items():
-                if value is not None:
+                if value:
                     update_user_fact(user_id, key, value)
+            save_profile_to_disk(user_id, get_user_profile(user_id))
 
-        return jsonify({"response": response})
+        # Return both response AND lexical facts
+        return jsonify({
+            "response": response,
+            "lexical_facts": lexical_data or {}
+        })
 
     except requests.ConnectionError:
         return jsonify({"response": "⚠️ Could not connect to Ollama."}), 503
@@ -164,6 +201,7 @@ def chat():
         return jsonify({"response": f"⚠️ Ollama HTTP error: {e}"}), 500
     except Exception as e:
         return jsonify({"response": f"⚠️ Unexpected error: {e}"}), 500
+
 
 @app.route("/ollama_healthcheck")
 def ollama_healthcheck():

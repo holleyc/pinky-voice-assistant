@@ -59,9 +59,13 @@ def save_profiles_to_disk():
     except Exception as e:
         print(f"[memory.py] Error saving profiles: {e}")
 
-def save_profile_to_disk(user_id: str, profile: Dict):
-    _user_profiles[user_id] = profile
-    save_profiles_to_disk()
+def save_profile_to_disk(user_id, profile_data):
+    profiles_dir = 'user_profiles'
+    os.makedirs(profiles_dir, exist_ok=True)
+    profile_path = os.path.join(profiles_dir, f"{user_id}.json")
+    with open(profile_path, 'w') as f:
+        json.dump(profile_data, f, indent=4)
+    print(f"[memory.py] Saved profile for user_id: {user_id}")
 
 def _autosave_worker(interval: int = 60):
     while True:
@@ -73,13 +77,13 @@ def start_autosave(interval: int = 60):
     t = threading.Thread(target=_autosave_worker, args=(interval,), daemon=True)
     t.start()
 
-def get_user_profile(user_id: str) -> Dict:
-    """Always returns a profile with at least an empty 'facts' dict."""
-    if user_id not in _user_profiles:
-        _user_profiles[user_id] = {"facts": {}}
-    elif "facts" not in _user_profiles[user_id]:
-        _user_profiles[user_id]["facts"] = {}
-    return _user_profiles[user_id]
+def get_user_profile(user_id):
+    profile_path = os.path.join('user_profiles', f"{user_id}.json")
+    if os.path.exists(profile_path):
+        with open(profile_path, 'r') as f:
+            return json.load(f)
+    else:
+        return {"facts": {}}
 
 def update_user_fact(user_id: str, key: str, value: str):
     profile = get_user_profile(user_id)
