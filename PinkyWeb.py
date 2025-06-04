@@ -8,9 +8,6 @@ import whisper
 import re
 import atexit
 from uuid import uuid4
-from memory import get_user_profile, update_user_fact, save_profile_to_disk
-
-
 from flask import (
     Flask, request, jsonify, render_template,
     session, make_response, send_from_directory
@@ -21,7 +18,7 @@ from memory import (
     get_user_profile, update_user_fact,
     query_user_memory, add_user_memory,
     query_global_memory, add_global_memory,
-    save_profiles_to_disk,  # Optional manual save trigger
+    save_profiles_to_disk, save_profile_to_disk,
     safe_extract_json
 )
 
@@ -34,18 +31,17 @@ from utils.chroma_utils import (
 # Register profile save on exit
 atexit.register(save_profiles_to_disk)
 
-# --- Flask App Setup ---
 app = Flask(__name__)
-app.secret_key = "super_secret_key"  # Use a secure env var in production
+app.secret_key = "super_secret_key"  # Replace with environment variable in production
 
-# --- Globals ---
 model = whisper.load_model("base")
 OLLAMA_URL = "http://localhost:11434/api/chat"
-USER_PROFILES_DIR = "user_profiles"
 
 # --- Helper Functions ---
 def get_user_id():
-    return session.setdefault("user_id", get_or_create_user_id(request))
+    if "user_id" not in session:
+        session["user_id"] = get_or_create_user_id(request)
+    return session["user_id"]
 
 def chat_with_ollama(messages):
     payload = {"model": "pinky", "messages": messages, "stream": False}
@@ -56,7 +52,12 @@ def chat_with_ollama(messages):
 def extract_lexical_facts(text):
     try:
         response = chat_with_ollama([
-            {"role": "system", "content": "Extract user facts from the text and return as a compact JSON object. Use keys like name, age, hobby, vehicle, favorite_color. Only output a valid JSON object."},
+            {"role": "system", "content": (
+                "Extract user facts from the text and return as a compact JSON object. "
+                "Use keys like name, age, hobby, vehicle, favorite_color. "
+                "Only output a valid JSON object. Do not extract filler words. "
+                "If no facts are found, return an empty JSON object."
+            )},
             {"role": "user", "content": text}
         ])
         return safe_extract_json(response)
@@ -101,7 +102,9 @@ def init_chat():
 
 @app.route("/profile")
 def view_profile():
-    user_id = request.cookies.get("uuid")
+    user_id = session.get("user_id") or request.cookies.get("user_id")
+    if not user_id:
+        return jsonify({"error": "User not identified"}), 404
     profile = get_user_profile(user_id)
     return jsonify(profile)
 
@@ -110,6 +113,9 @@ def chat():
     try:
         user_input = request.json.get("message", "")
         user_id = get_user_id()
+
+        if not user_id:
+            return jsonify({"response": "⚠️ User ID not found."}), 400
 
         print(f"[chat] user_id: {user_id}, input: {user_input}")
 
@@ -149,7 +155,6 @@ def chat():
             for key, value in lexical_data.items():
                 if value is not None:
                     update_user_fact(user_id, key, value)
-
 
         return jsonify({"response": response})
 
@@ -205,6 +210,5 @@ def reset():
 def serve_images(filename):
     return send_from_directory('images', filename)
 
-# --- Run App ---
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5002)

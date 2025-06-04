@@ -30,7 +30,6 @@
       border-radius: 8px;
       font-size: 1.1rem;
       margin-bottom: 1rem;
-      display: none; /* Hide initially until username is set */
     }
 
     .message {
@@ -53,7 +52,6 @@
       gap: 0.5rem;
       width: 100%;
       margin-bottom: 1rem;
-      display: none; /* Hide initially until username is set */
     }
 
     .input-container input[type="text"] {
@@ -84,7 +82,7 @@
       background: #e63946;
     }
 
-    #status {
+    #status, #ollama-status {
       text-align: center;
       font-size: 1rem;
       color: #999;
@@ -92,65 +90,8 @@
     }
 
     #ollama-status {
-      text-align: center;
       font-size: 0.9rem;
-      color: #999;
-      margin-bottom: 1rem;
       font-style: italic;
-    }
-
-    /* New styles for username prompt modal */
-    #username-modal {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background-color: rgba(30, 30, 30, 0.95);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    #username-modal-content {
-      background: #2a2a2a;
-      padding: 2rem;
-      border-radius: 8px;
-      text-align: center;
-      width: 90%;
-      max-width: 400px;
-    }
-
-    #username-modal-content label {
-      display: block;
-      margin-bottom: 0.5rem;
-      font-size: 1.2rem;
-      color: #ff4d4d;
-    }
-
-    #username-modal-content input[type="text"] {
-      width: 100%;
-      padding: 1rem;
-      font-size: 1.1rem;
-      border-radius: 6px;
-      border: 1px solid #444;
-      background: #111;
-      color: #f0f0f0;
-      box-sizing: border-box;
-      margin-bottom: 1rem;
-    }
-
-    #username-modal-content button {
-      background: #ff4d4d;
-      color: white;
-      border: none;
-      padding: 1rem 2rem;
-      font-size: 1.1rem;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-
-    #username-modal-content button:hover {
-      background: #e63946;
     }
   </style>
 </head>
@@ -158,15 +99,6 @@
   <h2>Chat with "Pinky"</h2>
   <div id="status">Connecting...</div>
   <div id="ollama-status">Checking Ollama status...</div>
-
-  <!-- Username prompt modal -->
-  <div id="username-modal">
-    <div id="username-modal-content">
-      <label for="username-input">What is your name?</label>
-      <input id="username-input" type="text" autocomplete="off" />
-      <button id="username-submit">Start Chatting</button>
-    </div>
-  </div>
 
   <div id="chat-box"></div>
 
@@ -177,8 +109,6 @@
   </div>
 
   <script>
-    let userName = null;
-
     async function checkOllamaStatus() {
       const statusElem = document.getElementById("ollama-status");
       try {
@@ -199,16 +129,6 @@
         statusElem.style.fontStyle = "italic";
       }
     }
-
-    document.addEventListener("DOMContentLoaded", async () => {
-      await checkOllamaStatus();
-
-      // Show username modal on load
-      document.getElementById('username-modal').style.display = 'flex';
-
-      // Optionally: you could load username from localStorage here if you want to skip prompt next time
-      // For now, user must enter name each time
-    });
 
     function addMessage(role, message) {
       const chatBox = document.getElementById("chat-box");
@@ -248,40 +168,28 @@
       }
     }
 
-    // Handle username submission
-    document.getElementById('username-submit').addEventListener('click', async () => {
-      const input = document.getElementById('username-input');
-      const name = input.value.trim();
-      if (!name) {
-        alert("Please enter your name.");
-        return;
-      }
-      userName = name;
+    document.addEventListener("DOMContentLoaded", async () => {
+      await checkOllamaStatus();
 
-      // Send the username as first message to /chat to create profile
+      // Show UI immediately
+      document.getElementById("chat-box").style.display = "block";
+      document.querySelector(".input-container").style.display = "flex";
+      document.getElementById("user-input").focus();
+
+      // Optionally send a default name to initialize profile
+      addMessage("user", "Friend");
       try {
-        addMessage("user", userName);
         const response = await fetch("/chat", {
           method: "POST",
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: userName })
+          body: JSON.stringify({ message: "Friend" })
         });
         const data = await response.json();
         addMessage("ai", data.response);
       } catch (err) {
-        console.error("Chat error:", err);
-        addMessage("ai", "<span style='color:red;'>Error: Failed to contact backend.</span>");
+        console.error("Init chat error:", err);
       }
-
-      // Hide modal and show chat
-      document.getElementById('username-modal').style.display = 'none';
-      document.getElementById('chat-box').style.display = 'block';
-      document.querySelector('.input-container').style.display = 'flex';
-
-      // Focus input field
-      document.getElementById('user-input').focus();
     });
-
   </script>
 
   <script>

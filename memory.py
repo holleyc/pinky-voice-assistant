@@ -3,6 +3,7 @@ import json
 import time
 import threading
 import re
+import shutil
 from typing import Dict, Optional
 from chromadb import PersistentClient
 from chromadb.utils import embedding_functions
@@ -18,12 +19,10 @@ os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
 print("[memory.py] Initializing ChromaDB...")
 
 client = PersistentClient(path=CHROMA_PERSIST_DIR)
-
 embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
     model_name="all-MiniLM-L6-v2"
 )
 
-# Core and auxiliary collections
 collection = client.get_or_create_collection(COLLECTION_NAME)
 USER_MEM_COLLECTION = "user_memory"
 GLOBAL_MEM_COLLECTION = "global_memory"
@@ -32,7 +31,7 @@ user_mem_col = client.get_or_create_collection(USER_MEM_COLLECTION, embedding_fu
 global_mem_col = client.get_or_create_collection(GLOBAL_MEM_COLLECTION, embedding_function=embedding_fn)
 
 # === USER PROFILE SYSTEM ===
-_user_profiles: Dict[str, Dict[str, str]] = {}
+_user_profiles: Dict[str, Dict] = {}
 
 def load_profiles_from_disk():
     global _user_profiles
@@ -41,15 +40,12 @@ def load_profiles_from_disk():
             data = json.load(f)
             if isinstance(data, dict):
                 _user_profiles = data
+                print(f"[memory.py] Loaded {len(data)} profiles from disk.")
             else:
-                raise ValueError("Invalid JSON format in profile store.")
-        print(f"[memory.py] Loaded profiles: {list(_user_profiles.keys())}")
+                raise ValueError("Invalid JSON format.")
     except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
         _user_profiles = {}
-        print(f"[memory.py] Failed to load profiles: {e} — Starting fresh.")
-
-
-import shutil
+        print(f"[memory.py] Could not load profiles: {e} — Starting fresh.")
 
 def save_profiles_to_disk():
     try:
@@ -59,46 +55,40 @@ def save_profiles_to_disk():
         with open(PROFILE_STORE_PATH, "w") as f:
             json.dump(_user_profiles, f, indent=2)
 
-        print(f"[memory.py] User profiles saved:\n{json.dumps(_user_profiles, indent=2)}")
+        print(f"[memory.py] Saved {_user_profiles.__len__()} user profiles to disk.")
     except Exception as e:
         print(f"[memory.py] Error saving profiles: {e}")
 
-
-
 def save_profile_to_disk(user_id: str, profile: Dict):
-    """Save a single user profile to the store and persist."""
     _user_profiles[user_id] = profile
     save_profiles_to_disk()
 
 def _autosave_worker(interval: int = 60):
-    """Worker thread for periodically saving profiles."""
     while True:
         time.sleep(interval)
         save_profiles_to_disk()
         print("[memory.py] Autosave complete.")
 
 def start_autosave(interval: int = 60):
-    """Start autosave thread."""
-    threading.Thread(target=_autosave_worker, args=(interval,), daemon=True).start()
+    t = threading.Thread(target=_autosave_worker, args=(interval,), daemon=True)
+    t.start()
 
 def get_user_profile(user_id: str) -> Dict:
-    """Retrieve user profile or create a default one."""
-    return _user_profiles.get(user_id, {"facts": {}})
-
-def update_user_fact(user_id: str, key: str, value: str):
-    """Safely update a fact in a user's profile."""
+    """Always returns a profile with at least an empty 'facts' dict."""
     if user_id not in _user_profiles:
         _user_profiles[user_id] = {"facts": {}}
     elif "facts" not in _user_profiles[user_id]:
         _user_profiles[user_id]["facts"] = {}
-    
-    _user_profiles[user_id]["facts"][key] = value
+    return _user_profiles[user_id]
 
+def update_user_fact(user_id: str, key: str, value: str):
+    profile = get_user_profile(user_id)
+    profile["facts"][key] = value
+    _user_profiles[user_id] = profile
 
 # === VECTOR MEMORY SYSTEM ===
 
 def add_user_memory(user_id: str, text: str, metadata: Optional[Dict] = None):
-    """Add a user-specific memory vector."""
     metadata = metadata or {}
     metadata["user_id"] = user_id
     user_mem_col.add(
@@ -108,7 +98,6 @@ def add_user_memory(user_id: str, text: str, metadata: Optional[Dict] = None):
     )
 
 def query_user_memory(user_id: str, query_text: str, n_results: int = 5) -> Dict:
-    """Query a user's vector memory."""
     return user_mem_col.query(
         query_texts=[query_text],
         n_results=n_results,
@@ -116,7 +105,6 @@ def query_user_memory(user_id: str, query_text: str, n_results: int = 5) -> Dict
     )
 
 def add_global_memory(text: str, metadata: Optional[Dict] = None):
-    """Add a global memory vector."""
     metadata = metadata or {}
     global_mem_col.add(
         documents=[text],
@@ -125,7 +113,6 @@ def add_global_memory(text: str, metadata: Optional[Dict] = None):
     )
 
 def query_global_memory(query_text: str, n_results: int = 5) -> Dict:
-    """Query global memory vectors."""
     return global_mem_col.query(
         query_texts=[query_text],
         n_results=n_results
@@ -134,22 +121,22 @@ def query_global_memory(query_text: str, n_results: int = 5) -> Dict:
 # === UTILITIES ===
 
 def safe_extract_json(text: str) -> dict:
-    """Try to safely extract JSON from a text blob."""
     try:
         return json.loads(text)
     except json.JSONDecodeError:
+        print(f"[safe_extract_json] Primary decode failed. Trying fallback...")
         match = re.search(r"\{.*?\}", text, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group(0))
             except Exception as e:
-                print(f"[safe_extract_json] Nested parse error: {e}")
-        print(f"[safe_extract_json] Failed to parse JSON from: {text}")
+                print(f"[safe_extract_json] Fallback parse failed: {e}")
+        print(f"[safe_extract_json] Could not parse JSON from: {text}")
         return {}
 
-# === INIT ON IMPORT ===
+# === INIT ===
 load_profiles_from_disk()
 start_autosave(interval=60)
 
 if __name__ == "__main__":
-    print("[memory.py] This is a utility module and should not be run directly.")
+    print("[memory.py] This module is not meant to be run directly.")
