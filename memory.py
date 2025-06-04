@@ -35,24 +35,28 @@ global_mem_col = client.get_or_create_collection(GLOBAL_MEM_COLLECTION, embeddin
 _user_profiles: Dict[str, Dict[str, str]] = {}
 
 def load_profiles_from_disk():
-    """Load user profiles from disk into memory."""
     global _user_profiles
     try:
         with open(PROFILE_STORE_PATH, "r") as f:
-            _user_profiles = json.load(f)
+            data = json.load(f)
+            if isinstance(data, dict):
+                _user_profiles = data
+            else:
+                raise ValueError("Invalid JSON format in profile store.")
         print(f"[memory.py] Loaded profiles: {list(_user_profiles.keys())}")
-    except (FileNotFoundError, json.JSONDecodeError) as e:
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
         _user_profiles = {}
         print(f"[memory.py] Failed to load profiles: {e} — Starting fresh.")
 
+
 def save_profiles_to_disk():
-    """Persist all user profiles to disk."""
     try:
         with open(PROFILE_STORE_PATH, "w") as f:
             json.dump(_user_profiles, f, indent=2)
-        print("[memory.py] User profiles saved.")
+        print(f"[memory.py] User profiles saved:\n{json.dumps(_user_profiles, indent=2)}")
     except Exception as e:
         print(f"[memory.py] Error saving profiles: {e}")
+
 
 def save_profile_to_disk(user_id: str, profile: Dict):
     """Save a single user profile to the store and persist."""
@@ -75,10 +79,14 @@ def get_user_profile(user_id: str) -> Dict:
     return _user_profiles.get(user_id, {"facts": {}})
 
 def update_user_fact(user_id: str, key: str, value: str):
-    """Update a single fact in a user's profile."""
+    """Safely update a fact in a user's profile."""
     if user_id not in _user_profiles:
         _user_profiles[user_id] = {"facts": {}}
+    elif "facts" not in _user_profiles[user_id]:
+        _user_profiles[user_id]["facts"] = {}
+    
     _user_profiles[user_id]["facts"][key] = value
+
 
 # === VECTOR MEMORY SYSTEM ===
 
