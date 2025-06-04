@@ -8,6 +8,8 @@ import whisper
 import re
 import atexit
 from uuid import uuid4
+from memory import get_user_profile, update_user_fact, save_profile_to_disk
+
 
 from flask import (
     Flask, request, jsonify, render_template,
@@ -40,23 +42,6 @@ app.secret_key = "super_secret_key"  # Use a secure env var in production
 model = whisper.load_model("base")
 OLLAMA_URL = "http://localhost:11434/api/chat"
 USER_PROFILES_DIR = "user_profiles"
-
-# --- User Profile Helpers ---
-def get_user_profile(user_id):
-    os.makedirs(USER_PROFILES_DIR, exist_ok=True)
-    profile_path = os.path.join(USER_PROFILES_DIR, f"{user_id}.json")
-    if os.path.exists(profile_path):
-        with open(profile_path, "r") as f:
-            return json.load(f)
-    profile = {"facts": {}, "memories": []}
-    save_profile_to_disk(user_id, profile)
-    return profile
-
-def save_profile_to_disk(user_id, profile):
-    os.makedirs(USER_PROFILES_DIR, exist_ok=True)
-    profile_path = os.path.join(USER_PROFILES_DIR, f"{user_id}.json")
-    with open(profile_path, "w") as f:
-        json.dump(profile, f, indent=2)
 
 # --- Helper Functions ---
 def get_user_id():
@@ -161,8 +146,10 @@ def chat():
         print(f"[chat] Extracted lexical facts: {lexical_data}")
 
         if isinstance(lexical_data, dict) and lexical_data:
-            user_profile["facts"].update(lexical_data)
-            save_profile_to_disk(user_id, user_profile)
+            for key, value in lexical_data.items():
+                if value is not None:
+                    update_user_fact(user_id, key, value)
+
 
         return jsonify({"response": response})
 

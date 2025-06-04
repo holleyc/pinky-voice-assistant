@@ -49,13 +49,20 @@ def load_profiles_from_disk():
         print(f"[memory.py] Failed to load profiles: {e} — Starting fresh.")
 
 
+import shutil
+
 def save_profiles_to_disk():
     try:
+        if os.path.exists(PROFILE_STORE_PATH):
+            shutil.copy(PROFILE_STORE_PATH, PROFILE_STORE_PATH + ".bak")
+
         with open(PROFILE_STORE_PATH, "w") as f:
             json.dump(_user_profiles, f, indent=2)
+
         print(f"[memory.py] User profiles saved:\n{json.dumps(_user_profiles, indent=2)}")
     except Exception as e:
         print(f"[memory.py] Error saving profiles: {e}")
+
 
 
 def save_profile_to_disk(user_id: str, profile: Dict):
@@ -143,3 +150,6 @@ def safe_extract_json(text: str) -> dict:
 # === INIT ON IMPORT ===
 load_profiles_from_disk()
 start_autosave(interval=60)
+
+if __name__ == "__main__":
+    print("[memory.py] This is a utility module and should not be run directly.")
