@@ -5,6 +5,8 @@ import json
 import tempfile
 import requests
 import whisper
+import re
+import atexit
 from uuid import uuid4
 
 from flask import (
@@ -12,15 +14,14 @@ from flask import (
     session, make_response, send_from_directory
 )
 
+# --- Internal Module Imports ---
 from memory import (
     get_user_profile, update_user_fact,
     query_user_memory, add_user_memory,
     query_global_memory, add_global_memory,
-    save_profiles_to_disk  # Optional manual save trigger
+    save_profiles_to_disk,  # Optional manual save trigger
+    safe_extract_json
 )
-
-import atexit
-atexit.register(save_profiles_to_disk)
 
 from utils.qr_utils import generate_qr_base64
 from utils.chroma_utils import (
@@ -28,39 +29,36 @@ from utils.chroma_utils import (
     save_message_to_chroma, get_relevant_context, get_chat_history
 )
 
-# Globals
-app = Flask(__name__)
-app.secret_key = "super_secret_key"  # Use env variable in production
+# Register profile save on exit
+atexit.register(save_profiles_to_disk)
 
+# --- Flask App Setup ---
+app = Flask(__name__)
+app.secret_key = "super_secret_key"  # Use a secure env var in production
+
+# --- Globals ---
 model = whisper.load_model("base")
 OLLAMA_URL = "http://localhost:11434/api/chat"
-
 USER_PROFILES_DIR = "user_profiles"
 
 # --- User Profile Helpers ---
-
 def get_user_profile(user_id):
-    if not os.path.exists(USER_PROFILES_DIR):
-        os.makedirs(USER_PROFILES_DIR)
+    os.makedirs(USER_PROFILES_DIR, exist_ok=True)
     profile_path = os.path.join(USER_PROFILES_DIR, f"{user_id}.json")
     if os.path.exists(profile_path):
         with open(profile_path, "r") as f:
             return json.load(f)
-    else:
-        # Create new default profile
-        profile = {"facts": {}, "memories": []}
-        save_profile_to_disk(user_id, profile)
-        return profile
+    profile = {"facts": {}, "memories": []}
+    save_profile_to_disk(user_id, profile)
+    return profile
 
 def save_profile_to_disk(user_id, profile):
-    if not os.path.exists(USER_PROFILES_DIR):
-        os.makedirs(USER_PROFILES_DIR)
+    os.makedirs(USER_PROFILES_DIR, exist_ok=True)
     profile_path = os.path.join(USER_PROFILES_DIR, f"{user_id}.json")
     with open(profile_path, "w") as f:
         json.dump(profile, f, indent=2)
 
 # --- Helper Functions ---
-
 def get_user_id():
     return session.setdefault("user_id", get_or_create_user_id(request))
 
@@ -69,11 +67,6 @@ def chat_with_ollama(messages):
     response = requests.post(OLLAMA_URL, json=payload)
     response.raise_for_status()
     return response.json().get("message", {}).get("content", "")
-
-import re
-
-# extract_lexical_facts
-from memory import safe_extract_json
 
 def extract_lexical_facts(text):
     try:
@@ -86,11 +79,7 @@ def extract_lexical_facts(text):
         print(f"[extract_lexical_facts] ERROR: {e}")
         return {}
 
-
-
-
 # --- Routes ---
-
 @app.route("/")
 def index():
     return render_template("chat.html")
@@ -139,58 +128,49 @@ def chat():
 
         print(f"[chat] user_id: {user_id}, input: {user_input}")
 
-        # Load or create user profile
         user_profile = get_user_profile(user_id)
         user_name = user_profile.get("facts", {}).get("name")
 
-        # Save user's message to vector user memory
         add_user_memory(user_id, user_input, metadata={"role": "user"})
 
-        # If no user name known yet, treat first message as name
         if not user_name:
             user_profile["facts"]["name"] = user_input
             save_profile_to_disk(user_id, user_profile)
             return jsonify({"response": f"Nice to meet you, {user_input}!"})
 
-        # Retrieve vector memory (chat history + relevant user data)
         user_mem_results = query_user_memory(user_id, user_input, n_results=5)
         global_mem_results = query_global_memory(user_input, n_results=3)
 
-        chat_context = []
-        for doc in user_mem_results.get("documents", [[]])[0]:
-            chat_context.append({"role": "system", "content": doc})
-        for doc in global_mem_results.get("documents", [[]])[0]:
-            chat_context.append({"role": "system", "content": doc})
+        chat_context = [
+            {"role": "system", "content": doc}
+            for doc in user_mem_results.get("documents", [[]])[0]
+        ] + [
+            {"role": "system", "content": doc}
+            for doc in global_mem_results.get("documents", [[]])[0]
+        ]
 
         messages = chat_context + [{"role": "user", "content": user_input}]
-
         response = chat_with_ollama(messages)
+
         if not response:
             return jsonify({"response": "⚠️ Empty or malformed LLM response."})
 
-        # Save assistant reply to user memory
         add_user_memory(user_id, response, metadata={"role": "assistant"})
 
-        # Extract lexical facts and update profile if applicable
         lexical_data = extract_lexical_facts(user_input)
         print(f"[chat] Extracted lexical facts: {lexical_data}")
 
         if isinstance(lexical_data, dict) and lexical_data:
-            for key, value in lexical_data.items():
-                user_profile["facts"][key] = value
+            user_profile["facts"].update(lexical_data)
             save_profile_to_disk(user_id, user_profile)
-
 
         return jsonify({"response": response})
 
     except requests.ConnectionError:
-        print("[chat] ERROR: Ollama connection error")
         return jsonify({"response": "⚠️ Could not connect to Ollama."}), 503
     except requests.HTTPError as e:
-        print(f"[chat] ERROR: Ollama HTTP error: {e}")
         return jsonify({"response": f"⚠️ Ollama HTTP error: {e}"}), 500
     except Exception as e:
-        print(f"[chat] ERROR: Unexpected error: {e}")
         return jsonify({"response": f"⚠️ Unexpected error: {e}"}), 500
 
 @app.route("/ollama_healthcheck")
@@ -238,6 +218,6 @@ def reset():
 def serve_images(filename):
     return send_from_directory('images', filename)
 
-# --- Run ---
+# --- Run App ---
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5002)
