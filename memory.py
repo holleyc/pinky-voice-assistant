@@ -11,7 +11,7 @@ from chromadb.utils import embedding_functions
 # === CONFIGURATION ===
 COLLECTION_NAME = "Pinkys_Brain"
 CHROMA_PERSIST_DIR = "./chroma_persist"
-PROFILE_STORE_PATH = "./user_profiles.json"
+# (We no longer use PROFILE_STORE_PATH or _user_profiles)
 
 os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
 
@@ -30,65 +30,42 @@ GLOBAL_MEM_COLLECTION = "global_memory"
 user_mem_col = client.get_or_create_collection(USER_MEM_COLLECTION, embedding_function=embedding_fn)
 global_mem_col = client.get_or_create_collection(GLOBAL_MEM_COLLECTION, embedding_function=embedding_fn)
 
-# === USER PROFILE SYSTEM ===
-_user_profiles: Dict[str, Dict] = {}
+# === USER PROFILE SYSTEM (per-user files) ===
 
-def load_profiles_from_disk():
-    global _user_profiles
-    try:
-        with open(PROFILE_STORE_PATH, "r") as f:
-            data = json.load(f)
-            if isinstance(data, dict):
-                _user_profiles = data
-                print(f"[memory.py] Loaded {len(data)} profiles from disk.")
-            else:
-                raise ValueError("Invalid JSON format.")
-    except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
-        _user_profiles = {}
-        print(f"[memory.py] Could not load profiles: {e} — Starting fresh.")
-
-def save_profiles_to_disk():
-    try:
-        if os.path.exists(PROFILE_STORE_PATH):
-            shutil.copy(PROFILE_STORE_PATH, PROFILE_STORE_PATH + ".bak")
-
-        with open(PROFILE_STORE_PATH, "w") as f:
-            json.dump(_user_profiles, f, indent=2)
-
-        print(f"[memory.py] Saved {_user_profiles.__len__()} user profiles to disk.")
-    except Exception as e:
-        print(f"[memory.py] Error saving profiles: {e}")
-
-def save_profile_to_disk(user_id, profile_data):
-    profiles_dir = 'user_profiles'
+def get_user_profile(user_id: str) -> Dict:
+    """
+    Returns the profile dict for this user. If no file exists, return a blank structure.
+    """
+    profiles_dir = "user_profiles"
     os.makedirs(profiles_dir, exist_ok=True)
     profile_path = os.path.join(profiles_dir, f"{user_id}.json")
-    with open(profile_path, 'w') as f:
-        json.dump(profile_data, f, indent=4)
-    print(f"[memory.py] Saved profile for user_id: {user_id}")
-
-def _autosave_worker(interval: int = 60):
-    while True:
-        time.sleep(interval)
-        save_profiles_to_disk()
-        print("[memory.py] Autosave complete.")
-
-def start_autosave(interval: int = 60):
-    t = threading.Thread(target=_autosave_worker, args=(interval,), daemon=True)
-    t.start()
-
-def get_user_profile(user_id):
-    profile_path = os.path.join('user_profiles', f"{user_id}.json")
     if os.path.exists(profile_path):
-        with open(profile_path, 'r') as f:
+        with open(profile_path, "r") as f:
             return json.load(f)
     else:
         return {"facts": {}}
 
-def update_user_fact(user_id: str, key: str, value: str):
+def save_profile_to_disk(user_id: str, profile_data: Dict):
+    """
+    Write this user's profile back to disk. Overwrites existing file.
+    """
+    profiles_dir = "user_profiles"
+    os.makedirs(profiles_dir, exist_ok=True)
+    profile_path = os.path.join(profiles_dir, f"{user_id}.json")
+    with open(profile_path, "w") as f:
+        json.dump(profile_data, f, indent=2)
+    print(f"[memory.py] Saved profile for user_id: {user_id}")
+
+def update_user_fact(user_id: str, key: str, value):
+    """
+    Reads the per-user file, updates the `facts` sub-dict, and writes it back.
+    """
     profile = get_user_profile(user_id)
+    if "facts" not in profile:
+        profile["facts"] = {}
     profile["facts"][key] = value
-    _user_profiles[user_id] = profile
+    save_profile_to_disk(user_id, profile)
+
 
 # === VECTOR MEMORY SYSTEM ===
 
@@ -138,9 +115,20 @@ def safe_extract_json(text: str) -> dict:
         print(f"[safe_extract_json] Could not parse JSON from: {text}")
         return {}
 
-# === INIT ===
-load_profiles_from_disk()
-start_autosave(interval=60)
+# ===================================================================
+# (We no longer need load_profiles_from_disk, save_profiles_to_disk, or _user_profiles)
+# ===================================================================
+
+def _autosave_worker(interval: int = 60):
+    """This thread is no longer needed, since we save per-user on every update."""
+    while True:
+        time.sleep(interval)
+        # We could implement a periodic backup of 'user_profiles/' directory if desired
+        print("[memory.py] Autosave (noop) complete.")
+
+def start_autosave(interval: int = 60):
+    t = threading.Thread(target=_autosave_worker, args=(interval,), daemon=True)
+    t.start()
 
 if __name__ == "__main__":
     print("[memory.py] This module is not meant to be run directly.")
