@@ -37,15 +37,8 @@
       word-wrap: break-word;
     }
 
-    .user {
-      color: #ff4d4d;
-      font-weight: bold;
-    }
-
-    .ai {
-      color: #50fa7b;
-      font-weight: bold;
-    }
+    .user { color: #ff4d4d; font-weight: bold; }
+    .ai { color: #50fa7b; font-weight: bold; }
 
     .input-container {
       display: flex;
@@ -62,7 +55,6 @@
       color: #f0f0f0;
       border: 1px solid #444;
       border-radius: 6px;
-      box-sizing: border-box;
     }
 
     .input-container button {
@@ -74,8 +66,6 @@
       border-radius: 6px;
       cursor: pointer;
       font-weight: bold;
-      white-space: nowrap;
-      box-sizing: border-box;
     }
 
     .input-container button:hover {
@@ -95,12 +85,10 @@
     }
   </style>
 </head>
-
 <body>
   <h2>Chat with "Pinky"</h2>
   <div id="status">Connecting...</div>
   <div id="ollama-status">Checking Ollama status...</div>
-
   <div id="chat-box"></div>
 
   <div class="input-container">
@@ -109,8 +97,8 @@
   </div>
 
 <script>
+  // ---- Generate UUID v4 fallback for older browsers ----
   function generateUUID() {
-    // Generates a UUID v4 compliant string
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
       const r = Math.random() * 16 | 0;
       const v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -118,38 +106,27 @@
     });
   }
 
-  let userId = localStorage.getItem('user_id');
+  // ---- Setup persistent user ID in localStorage ----
+  let userId = localStorage.getItem("user_id");
   if (!userId) {
     userId = generateUUID();
-    localStorage.setItem('user_id', userId);
+    localStorage.setItem("user_id", userId);
   }
 
-  async function checkOllamaStatus() {
-    const statusElem = document.getElementById("ollama-status");
-    try {
-      const res = await fetch("/ollama_healthcheck");
-      const data = await res.json();
-      if (data.status === "success") {
-        statusElem.textContent = "🟢 Ollama is online!";
-        statusElem.style.color = "#50fa7b";
-        statusElem.style.fontStyle = "normal";
-      } else {
-        statusElem.textContent = "🔴 Ollama offline: " + data.message;
-        statusElem.style.color = "#ff4d4d";
-        statusElem.style.fontStyle = "italic";
-      }
-    } catch (err) {
-      statusElem.textContent = "🔴 Error checking Ollama status.";
-      statusElem.style.color = "#ff4d4d";
-      statusElem.style.fontStyle = "italic";
+  // ---- Handle sending message on Enter key ----
+  function handleKey(event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      sendMessage();
     }
   }
 
+  // ---- Add message to chat box ----
   function addMessage(role, message, lexicalFacts = null) {
     const chatBox = document.getElementById("chat-box");
     const messageElem = document.createElement("div");
     messageElem.className = "message";
-    messageElem.innerHTML = `<span class="${role === 'user' ? 'user' : 'ai'}">${role === 'user' ? 'You' : 'Pinky'}:</span> ${message}`;
+    messageElem.innerHTML = `<span class="${role}">${role === "user" ? "You" : "Pinky"}:</span> ${message}`;
 
     if (lexicalFacts && Object.keys(lexicalFacts).length > 0) {
       const factsElem = document.createElement("pre");
@@ -166,21 +143,23 @@
     chatBox.scrollTop = chatBox.scrollHeight;
   }
 
+  // ---- Send message to backend ----
   async function sendMessage() {
     const input = document.getElementById("user-input");
     const message = input.value.trim();
     if (!message) return;
+
     input.value = "";
     addMessage("user", message);
 
     try {
-      const response = await fetch("/chat", {
+      const res = await fetch("/chat", {
         method: "POST",
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message })
       });
 
-      const data = await response.json();
+      const data = await res.json();
       addMessage("ai", data.response, data.lexical_facts);
     } catch (err) {
       console.error("Chat error:", err);
@@ -188,84 +167,55 @@
     }
   }
 
-  function handleKey(event) {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      sendMessage();
+  // ---- Check if Ollama is online ----
+  async function checkOllamaStatus() {
+    const statusElem = document.getElementById("ollama-status");
+    try {
+      const res = await fetch("/ollama_healthcheck");
+      const data = await res.json();
+
+      if (data.status === "success") {
+        statusElem.textContent = "🟢 Ollama is online!";
+        statusElem.style.color = "#50fa7b";
+        statusElem.style.fontStyle = "normal";
+      } else {
+        statusElem.textContent = "🔴 Ollama offline: " + data.message;
+        statusElem.style.color = "#ff4d4d";
+        statusElem.style.fontStyle = "italic";
+      }
+    } catch (err) {
+      statusElem.textContent = "🔴 Error checking Ollama status.";
+      statusElem.style.color = "#ff4d4d";
+      statusElem.style.fontStyle = "italic";
     }
   }
 
+  // ---- Initialize chat session on page load ----
   document.addEventListener("DOMContentLoaded", async () => {
+    const statusElem = document.getElementById("status");
+    await checkOllamaStatus();
+
     try {
-      await checkOllamaStatus();
-      // Other initialization code...
-    } catch (error) {
-      console.error("Initialization error:", error);
-    }
+      const res = await fetch(`/init?user_id=${userId}`);
+      const data = await res.json();
+      statusElem.textContent = "";
+      addMessage("ai", data.message);
 
-    document.getElementById("chat-box").style.display = "block";
-    document.querySelector(".input-container").style.display = "flex";
-    document.getElementById("user-input").focus();
-
-    async function initializeChat() {
-      const statusElem = document.getElementById("status");
-      const userId = localStorage.getItem("user_id");
-
-      try {
-        const res = await fetch(userId ? `/init?user_id=${userId}` : "/init");
-        const data = await res.json();
-        statusElem.textContent = "";
-        addMessage("ai", data.message);
-
-        // Store user_id from cookie if not in localStorage
-        if (!userId) {
-          const uidCookie = document.cookie
-            .split("; ")
-            .find(c => c.startsWith("user_id="));
-          if (uidCookie) {
-            localStorage.setItem("user_id", uidCookie.split("=")[1]);
-          }
+      // Store user_id from cookie if localStorage was empty
+      if (!localStorage.getItem("user_id")) {
+        const uidCookie = document.cookie
+          .split("; ")
+          .find(c => c.startsWith("user_id="));
+        if (uidCookie) {
+          localStorage.setItem("user_id", uidCookie.split("=")[1]);
         }
-      } catch (err) {
-        console.error("Failed to init:", err);
-        statusElem.textContent = "Failed to connect.";
       }
+    } catch (err) {
+      console.error("Init error:", err);
+      statusElem.textContent = "Failed to connect.";
     }
 
-    function addMessage(role, message) {
-      const chatBox = document.getElementById("chat-box");
-      const messageElem = document.createElement("div");
-      messageElem.className = "message";
-      messageElem.innerHTML = `<span class="${role}">${role === "user" ? "You" : "Pinky"}:</span> ${message}`;
-      chatBox.appendChild(messageElem);
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
-
-    async function sendMessage() {
-      const input = document.getElementById("user-input");
-      const message = input.value.trim();
-      if (!message) return;
-
-      input.value = "";
-      addMessage("user", message);
-
-      try {
-        const res = await fetch("/chat", {
-          method: "POST",
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message })
-        });
-
-        const data = await res.json();
-        addMessage("ai", data.response);
-      } catch (err) {
-        console.error("Chat error:", err);
-        addMessage("ai", "<span style='color:red;'>Error: Failed to contact backend.</span>");
-      }
-    }
-
-
-    // Initial greeting or name send
+    // Optional: Prime the conversation with "Friend"
     addMessage("user", "Friend");
     try {
       const response = await fetch("/chat", {
@@ -278,6 +228,8 @@
     } catch (err) {
       console.error("Init chat error:", err);
     }
+
+    document.getElementById("user-input").focus();
   });
 </script>
 </body>
