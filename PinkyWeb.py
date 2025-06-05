@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from flask import (
     Flask, request, jsonify, render_template,
-    session, make_response, send_from_directory
+    session, send_from_directory
 )
 
 # --- Internal Module Imports ---
@@ -28,7 +28,7 @@ from utils.chroma_utils import (
     save_message_to_chroma, get_relevant_context, get_chat_history
 )
 
-# Register profile save on exit (no-op since we save per-user immediately)
+# Register a no-op at exit (profiles saved immediately)
 atexit.register(lambda: None)
 
 # --- Flask App Setup ---
@@ -57,52 +57,44 @@ def get_user_id():
     session["user_id"] = user_id
     return user_id
 
+
 def chat_with_ollama(messages):
     payload = {"model": "pinky", "messages": messages, "stream": False}
     response = requests.post(OLLAMA_URL, json=payload)
     response.raise_for_status()
     return response.json().get("message", {}).get("content", "")
 
-def extract_lexical_facts(text):
-    facts = {}
-    # 1) “my name is …” or “I am …” or “Call me …”
-    name_match = re.search(r"\b(?:my name is|i am|call me)\s+([A-Za-z]+)\b", text, re.IGNORECASE)
-    if name_match:
-        facts["name"] = name_match.group(1)
-    else:
-        # 1a) Fallback: if text is exactly one capitalized word, treat that as name
-        single_word = text.strip()
-        if re.fullmatch(r"[A-Z][a-z]+", single_word):
-            facts["name"] = single_word
 
-    # 2) Age
+def extract_lexical_facts(text):
+    # Regex-based extraction for common user facts
+    facts = {}
+    # 1) Name patterns: explicit only
+    name_match = re.search(r"\b(?:my name is|call me)\s+([A-Z][a-z]+)\b", text)
+    if name_match:
+        facts['name'] = name_match.group(1)
+    # 2) Age pattern
     age_match = re.search(r"\bmy age is\s+(\d+)\b", text, re.IGNORECASE)
     if age_match:
-        facts["age"] = int(age_match.group(1))
-
+        facts['age'] = int(age_match.group(1))
     # 3) Favorite color
-    color_match = re.search(r"\bmy favorite color is\s+([A-Za-z]+)\b", text, re.IGNORECASE)
+    color_match = re.search(r"\bmy favorite color is\s+([A-Za-z\s]+)\b", text, re.IGNORECASE)
     if color_match:
-        facts["favorite_color"] = color_match.group(1)
-
-    # 4) Vehicle
-    vehicle_match = re.search(r"\bi drive a\s+([A-Za-z\s]+)\b", text, re.IGNORECASE)
-    if vehicle_match:
-        facts["vehicle"] = vehicle_match.group(1).strip()
-
-    # In extract_lexical_facts, after the color match:
+        facts['favorite_color'] = color_match.group(1).strip()
+    # 4) Favorite number
     number_match = re.search(r"\bmy favorite number is\s+(\d+)\b", text, re.IGNORECASE)
     if number_match:
-        facts["favorite_number"] = int(number_match.group(1))
-
-
+        facts['favorite_number'] = int(number_match.group(1))
+    # 5) Vehicle pattern
+    vehicle_match = re.search(r"\bi drive a\s+([A-Za-z\s]+)\b", text, re.IGNORECASE)
+    if vehicle_match:
+        facts['vehicle'] = vehicle_match.group(1).strip()
     return facts
-
 
 # --- Routes ---
 @app.route("/")
 def index():
     return render_template("chat.html")
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -110,6 +102,7 @@ def login():
         save_user_name(get_user_id(), request.form["username"])
         return render_template("chat.html")
     return render_template("login.html")
+
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
@@ -125,10 +118,11 @@ def transcribe():
         except Exception as e:
             return jsonify({"error": f"Transcription failed: {e}"}), 500
 
+
 @app.route("/init", methods=["GET"])
 def init_chat():
     user_id = get_user_id()
-    # Ensure user profile file exists (blank if new)
+    # Ensure user profile exists and is saved
     user_profile = get_user_profile(user_id)
     save_profile_to_disk(user_id, user_profile)
 
@@ -138,6 +132,7 @@ def init_chat():
     response.set_cookie("user_id", user_id, max_age=60 * 60 * 24 * 365 * 5)
     return response
 
+
 @app.route("/profile")
 def view_profile():
     user_id = session.get("user_id") or request.cookies.get("user_id")
@@ -145,6 +140,7 @@ def view_profile():
         return jsonify({"error": "User not identified"}), 404
     profile = get_user_profile(user_id)
     return jsonify(profile)
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -161,34 +157,37 @@ def chat():
         user_profile = get_user_profile(user_id)
         user_name = user_profile.get("facts", {}).get("name")
 
-        # 1) Handle retrieval queries: e.g. "what is my favorite color?" or "what is my favorite number?"
-        retrieve_match = re.search(r"\bwhat is my ([A-Za-z\s]+)\??", user_input, re.IGNORECASE)
-        if retrieve_match:
-            key_raw = retrieve_match.group(1).strip().lower()
+        # 1) Handle retrieval queries
+        if re.search(r"\bwhat is my ([a-z ]+)\??", user_input, re.IGNORECASE):
+            key_raw = re.search(r"\bwhat is my ([a-z ]+)\??", user_input, re.IGNORECASE).group(1).strip().lower()
             key = key_raw.replace(" ", "_")
             value = user_profile.get("facts", {}).get(key)
             if value is not None:
-                return jsonify({
-                    "response": f"Your {key_raw} is {value}.",
-                    "lexical_facts": {}
-                })
+                return jsonify({"response": f"Your {key_raw} is {value}.", "lexical_facts": {}})
             else:
-                return jsonify({
-                    "response": f"I don't know your {key_raw} yet.",
-                    "lexical_facts": {}
-                })
+                return jsonify({"response": f"I don't know your {key_raw} yet.", "lexical_facts": {}})
+        if re.search(r"\bwhat do I drive\??", user_input, re.IGNORECASE):
+            vehicle = user_profile.get("facts", {}).get("vehicle")
+            if vehicle:
+                return jsonify({"response": f"You drive a {vehicle}.", "lexical_facts": {}})
+            else:
+                return jsonify({"response": "I don't know what you drive yet.", "lexical_facts": {}})
+        if re.search(r"\b(?:what do you know about me|tell me some facts (?:about )?myself)\b", user_input, re.IGNORECASE):
+            facts = user_profile.get("facts", {})
+            if facts:
+                summary = ", ".join(f"{k.replace('_', ' ')}: {v}" for k, v in facts.items())
+                return jsonify({"response": f"Here’s what I know about you: {summary}.", "lexical_facts": {}})
+            else:
+                return jsonify({"response": "I don't know anything about you yet.", "lexical_facts": {}})
 
         # 2) Add to vector memory
         add_user_memory(user_id, user_input, metadata={"role": "user"})
 
-        # 3) If no name yet, treat this input as name
+        # 3) If no name yet, treat input as name
         if not user_name:
             user_profile["facts"]["name"] = user_input
             save_profile_to_disk(user_id, user_profile)
-            return jsonify({
-                "response": f"Nice to meet you, {user_input}!",
-                "lexical_facts": {}
-            })
+            return jsonify({"response": f"Nice to meet you, {user_input}!", "lexical_facts": {}})
 
         # 4) Normal LLM chat flow
         user_mem_results = query_user_memory(user_id, user_input, n_results=5)
@@ -206,41 +205,29 @@ def chat():
         response_text = chat_with_ollama(messages)
 
         if not response_text:
-            return jsonify({
-                "response": "⚠️ Empty or malformed LLM response.",
-                "lexical_facts": {}
-            })
+            return jsonify({"response": "⚠️ Empty or malformed LLM response.", "lexical_facts": {}})
 
         add_user_memory(user_id, response_text, metadata={"role": "assistant"})
 
-        # 5) Extract new lexical facts from what the user just said
+        # 5) Extract new lexical facts from user input
         lexical_data = extract_lexical_facts(user_input)
         print(f"[chat] Extracted lexical facts: {lexical_data}")
 
         if isinstance(lexical_data, dict) and lexical_data:
-            # Update per-user profile file
             for key, value in lexical_data.items():
-                if value is not None:
+                if value is not None and value != "":
                     update_user_fact(user_id, key, value)
-            # At this point, `update_user_fact` already saved the file
+            # update_user_fact already saved to disk
 
-        return jsonify({
-            "response": response_text,
-            "lexical_facts": lexical_data
-        })
+        return jsonify({"response": response_text, "lexical_facts": lexical_data})
 
     except requests.ConnectionError:
         return jsonify({"response": "⚠️ Could not connect to Ollama."}), 503
     except requests.HTTPError as e:
-        return jsonify({
-            "response": f"⚠️ Ollama HTTP error: {e}",
-            "lexical_facts": {}
-        }), 500
+        return jsonify({"response": f"⚠️ Ollama HTTP error: {e}", "lexical_facts": {}}), 500
     except Exception as e:
-        return jsonify({
-            "response": f"⚠️ Unexpected error: {e}",
-            "lexical_facts": {}
-        }), 500
+        return jsonify({"response": f"⚠️ Unexpected error: {e}", "lexical_facts": {}}), 500
+
 
 @app.route("/ollama_healthcheck")
 def ollama_healthcheck():
@@ -253,6 +240,7 @@ def ollama_healthcheck():
         return jsonify({"status": "error", "message": f"❌ HTTP error: {e}"}), 500
     except Exception as e:
         return jsonify({"status": "error", "message": f"❌ Error: {e}"}), 500
+
 
 @app.route("/qr")
 @app.route("/pair")
