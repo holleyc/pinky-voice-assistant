@@ -18,14 +18,14 @@ def save_lexical_facts(user_id, facts):
         collection.add(documents=[fact], ids=[str(uuid4())])
 
 def get_lexical_context(user_id, query_text, n_results=5):
-    try:
-        collection = chroma_client.get_collection(f"{user_id}_lexical")
-        results = collection.query(query_texts=[query_text], n_results=n_results)
-        return results["documents"][0] if results["documents"] else []
-    except ValueError:
-        # Collection might not exist yet
-        return []
+    collection = chroma_client.get_or_create_collection(f"{user_id}_lexical")
+    results = collection.query(query_texts=[query_text], n_results=n_results)
+    return results["documents"][0] if results["documents"] else []
 
+def save_lexical_facts(user_id, facts):
+    collection = chroma_client.get_or_create_collection(f"{user_id}_lexical")
+    for fact in facts:
+        collection.add(documents=[fact], ids=[str(uuid4())])
 
 
 # === CONFIGURATION ===
@@ -135,3 +135,16 @@ def get_chat_history(user_id: str) -> List[Dict]:
     except Exception as e:
         print(f"[chroma_utils] Error retrieving chat history: {e}")
         return []
+
+
+def get_global_context(query_text, n_results=5):
+    try:
+        collection = chroma_client.get_or_create_collection("global_lexical")
+        results = collection.query(query_texts=[query_text], n_results=n_results)
+        return results["documents"][0] if results["documents"] else []
+    except ValueError:
+        return []
+
+def save_global_fact(fact):
+    collection = chroma_client.get_or_create_collection("global_lexical")
+    collection.add(documents=[fact], ids=[str(uuid4())])
