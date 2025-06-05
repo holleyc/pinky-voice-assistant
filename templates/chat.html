@@ -92,7 +92,7 @@
   <div id="chat-box"></div>
 
   <div class="input-container">
-    <input id="user-input" type="text" placeholder="Type a message..." onkeydown="handleKey(event)" />
+    <input id="user-input" type="text" placeholder="Ask anything..." onkeydown="handleKey(event)" />
     <button onclick="sendMessage()">Send</button>
   </div>
 
@@ -214,21 +214,6 @@
       console.error("Init error:", err);
       statusElem.textContent = "Failed to connect.";
     }
-
-    // Optional: Prime the conversation with "Friend"
-    addMessage("user", "Friend");
-    try {
-      const response = await fetch("/chat", {
-        method: "POST",
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: "Friend" })
-      });
-      const data = await response.json();
-      addMessage("ai", data.response, data.lexical_facts);
-    } catch (err) {
-      console.error("Init chat error:", err);
-    }
-
     document.getElementById("user-input").focus();
   });
 </script>
