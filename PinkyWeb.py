@@ -20,7 +20,7 @@ from memory import (
     query_user_memory, add_user_memory,
     query_global_memory, add_global_memory,
     save_profiles_to_disk,  # Optional manual save trigger
-    safe_extract_json
+    save_profile_to_disk
 )
 
 from utils.qr_utils import generate_qr_base64
@@ -41,26 +41,24 @@ model = whisper.load_model("base")
 OLLAMA_URL = "http://localhost:11434/api/chat"
 USER_PROFILES_DIR = "user_profiles"
 
-# --- User Profile Helpers ---
-def get_user_profile(user_id):
-    os.makedirs(USER_PROFILES_DIR, exist_ok=True)
-    profile_path = os.path.join(USER_PROFILES_DIR, f"{user_id}.json")
-    if os.path.exists(profile_path):
-        with open(profile_path, "r") as f:
-            return json.load(f)
-    profile = {"facts": {}, "memories": []}
-    save_profile_to_disk(user_id, profile)
-    return profile
-
-def save_profile_to_disk(user_id, profile):
-    os.makedirs(USER_PROFILES_DIR, exist_ok=True)
-    profile_path = os.path.join(USER_PROFILES_DIR, f"{user_id}.json")
-    with open(profile_path, "w") as f:
-        json.dump(profile, f, indent=2)
-
 # --- Helper Functions ---
 def get_user_id():
-    return session.setdefault("user_id", get_or_create_user_id(request))
+    # Priority: JSON payload > args > cookie > session > generate new
+    user_id = None
+    if request.is_json:
+        user_id = request.json.get("user_id")
+    if not user_id:
+        user_id = request.args.get("user_id")
+    if not user_id:
+        user_id = request.cookies.get("user_id") or session.get("user_id")
+    if not user_id:
+        user_id = get_or_create_user_id(request)
+        print(f"[get_user_id] Generated new user_id: {user_id}")
+    else:
+        print(f"[get_user_id] Using existing user_id: {user_id}")
+    session["user_id"] = user_id
+    return user_id
+
 
 def chat_with_ollama(messages):
     payload = {"model": "pinky", "messages": messages, "stream": False}
@@ -68,21 +66,33 @@ def chat_with_ollama(messages):
     response.raise_for_status()
     return response.json().get("message", {}).get("content", "")
 
+
 def extract_lexical_facts(text):
-    try:
-        response = chat_with_ollama([
-            {"role": "system", "content": "Extract user facts from the text and return as a compact JSON object. Use keys like name, age, hobby, vehicle, favorite_color. Only output a valid JSON object."},
-            {"role": "user", "content": text}
-        ])
-        return safe_extract_json(response)
-    except Exception as e:
-        print(f"[extract_lexical_facts] ERROR: {e}")
-        return {}
+    # Simple regex-based extraction for known patterns
+    facts = {}
+    # Name patterns
+    name_match = re.search(r"\b(?:my name is|i am|call me)\s+(\w+)\b", text, re.IGNORECASE)
+    if name_match:
+        facts['name'] = name_match.group(1)
+    # Age pattern
+    age_match = re.search(r"\bmy age is\s+(\d+)\b", text, re.IGNORECASE)
+    if age_match:
+        facts['age'] = int(age_match.group(1))
+    # Favorite color pattern
+    color_match = re.search(r"\bmy favorite color is\s+(\w+)\b", text, re.IGNORECASE)
+    if color_match:
+        facts['favorite_color'] = color_match.group(1)
+    # Vehicle pattern (e.g., 'i drive a toyota camry')
+    vehicle_match = re.search(r"\bi drive a\s+([\w\s]+)\b", text, re.IGNORECASE)
+    if vehicle_match:
+        facts['vehicle'] = vehicle_match.group(1).strip()
+    return facts
 
 # --- Routes ---
 @app.route("/")
 def index():
     return render_template("chat.html")
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -90,6 +100,7 @@ def login():
         save_user_name(get_user_id(), request.form["username"])
         return render_template("chat.html")
     return render_template("login.html")
+
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
@@ -105,6 +116,7 @@ def transcribe():
         except Exception as e:
             return jsonify({"error": f"Transcription failed: {e}"}), 500
 
+
 @app.route("/init", methods=["GET"])
 def init_chat():
     user_id = get_user_id()
@@ -114,34 +126,54 @@ def init_chat():
 
     name = get_saved_user_name(user_id)
     message = f"Welcome back, {name}!" if name else "Hi! What’s your name?"
-    response = jsonify({"message": message})
+    response = jsonify({"message": message, "user_id": user_id})
     response.set_cookie("user_id", user_id, max_age=60 * 60 * 24 * 365 * 5)
     return response
 
+
 @app.route("/profile")
 def view_profile():
-    user_id = request.cookies.get("uuid")
+    user_id = session.get("user_id") or request.cookies.get("user_id")
+    if not user_id:
+        return jsonify({"error": "User not identified"}), 404
     profile = get_user_profile(user_id)
     return jsonify(profile)
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
-        user_input = request.json.get("message", "")
+        data = request.get_json() or {}
+        user_input = data.get("message", "").strip()
         user_id = get_user_id()
+
+        if not user_id:
+            return jsonify({"response": "⚠️ User ID not found."}), 400
 
         print(f"[chat] user_id: {user_id}, input: {user_input}")
 
         user_profile = get_user_profile(user_id)
         user_name = user_profile.get("facts", {}).get("name")
 
+        # Check for retrieval queries: e.g., "what is my favorite color"
+        retrieve_match = re.search(r"\bwhat is my (\w+)\b", user_input, re.IGNORECASE)
+        if retrieve_match:
+            key = retrieve_match.group(1)
+            value = user_profile.get("facts", {}).get(key)
+            if value:
+                return jsonify({"response": f"Your {key.replace('_', ' ')} is {value}.", "lexical_facts": {}})
+            else:
+                return jsonify({"response": f"I don't know your {key.replace('_', ' ')} yet.", "lexical_facts": {}})
+
         add_user_memory(user_id, user_input, metadata={"role": "user"})
 
+        # If no name yet, treat input as name
         if not user_name:
             user_profile["facts"]["name"] = user_input
             save_profile_to_disk(user_id, user_profile)
-            return jsonify({"response": f"Nice to meet you, {user_input}!"})
+            return jsonify({"response": f"Nice to meet you, {user_input}!", "lexical_facts": {}})
 
+        # Retrieve vector memories
         user_mem_results = query_user_memory(user_id, user_input, n_results=5)
         global_mem_results = query_global_memory(user_input, n_results=3)
 
@@ -157,7 +189,7 @@ def chat():
         response = chat_with_ollama(messages)
 
         if not response:
-            return jsonify({"response": "⚠️ Empty or malformed LLM response."})
+            return jsonify({"response": "⚠️ Empty or malformed LLM response.", "lexical_facts": {}})
 
         add_user_memory(user_id, response, metadata={"role": "assistant"})
 
@@ -165,17 +197,20 @@ def chat():
         print(f"[chat] Extracted lexical facts: {lexical_data}")
 
         if isinstance(lexical_data, dict) and lexical_data:
-            user_profile["facts"].update(lexical_data)
+            for key, value in lexical_data.items():
+                if value:
+                    update_user_fact(user_id, key, value)
             save_profile_to_disk(user_id, user_profile)
 
-        return jsonify({"response": response})
+        return jsonify({"response": response, "lexical_facts": lexical_data})
 
     except requests.ConnectionError:
         return jsonify({"response": "⚠️ Could not connect to Ollama."}), 503
     except requests.HTTPError as e:
-        return jsonify({"response": f"⚠️ Ollama HTTP error: {e}"}), 500
+        return jsonify({"response": f"⚠️ Ollama HTTP error: {e}", "lexical_facts": {}}), 500
     except Exception as e:
-        return jsonify({"response": f"⚠️ Unexpected error: {e}"}), 500
+        return jsonify({"response": f"⚠️ Unexpected error: {e}", "lexical_facts": {}}), 500
+
 
 @app.route("/ollama_healthcheck")
 def ollama_healthcheck():
