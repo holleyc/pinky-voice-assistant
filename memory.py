@@ -57,13 +57,13 @@ def save_profile_to_disk(user_id: str, profile_data: Dict):
     print(f"[memory.py] Saved profile for user_id: {user_id}")
 
 def update_user_fact(user_id: str, key: str, value):
-    """
-    Reads the per-user file, updates the `facts` sub-dict, and writes it back.
-    """
+    # 1) Read the existing per-user JSON
     profile = get_user_profile(user_id)
     if "facts" not in profile:
         profile["facts"] = {}
+    # 2) Update the fact in that dict
     profile["facts"][key] = value
+    # 3) Persist immediately to disk in user_profiles/<user_id>.json
     save_profile_to_disk(user_id, profile)
 
 
@@ -114,10 +114,6 @@ def safe_extract_json(text: str) -> dict:
                 print(f"[safe_extract_json] Fallback parse failed: {e}")
         print(f"[safe_extract_json] Could not parse JSON from: {text}")
         return {}
-
-# ===================================================================
-# (We no longer need load_profiles_from_disk, save_profiles_to_disk, or _user_profiles)
-# ===================================================================
 
 def _autosave_worker(interval: int = 60):
     """This thread is no longer needed, since we save per-user on every update."""

@@ -38,7 +38,6 @@ app.secret_key = "super_secret_key"  # Use a secure env var in production
 # --- Globals ---
 model = whisper.load_model("base")
 OLLAMA_URL = "http://localhost:11434/api/chat"
-USER_PROFILES_DIR = "user_profiles"  # Used by memory.py's get_user_profile / save_profile_to_disk
 
 # --- Helper Functions ---
 def get_user_id():
@@ -65,39 +64,40 @@ def chat_with_ollama(messages):
     return response.json().get("message", {}).get("content", "")
 
 def extract_lexical_facts(text):
-    # Regex-based extraction for common user facts
     facts = {}
-
-    # 1) Name patterns
+    # 1) “my name is …” or “I am …” or “Call me …”
     name_match = re.search(r"\b(?:my name is|i am|call me)\s+([A-Za-z]+)\b", text, re.IGNORECASE)
     if name_match:
-        facts['name'] = name_match.group(1)
+        facts["name"] = name_match.group(1)
     else:
+        # 1a) Fallback: if text is exactly one capitalized word, treat that as name
         single_word = text.strip()
         if re.fullmatch(r"[A-Z][a-z]+", single_word):
-            facts['name'] = single_word
+            facts["name"] = single_word
 
-    # 2) Age pattern
+    # 2) Age
     age_match = re.search(r"\bmy age is\s+(\d+)\b", text, re.IGNORECASE)
     if age_match:
-        facts['age'] = int(age_match.group(1))
+        facts["age"] = int(age_match.group(1))
 
-    # 3) Favorite color pattern
+    # 3) Favorite color
     color_match = re.search(r"\bmy favorite color is\s+([A-Za-z]+)\b", text, re.IGNORECASE)
     if color_match:
-        facts['favorite_color'] = color_match.group(1)
+        facts["favorite_color"] = color_match.group(1)
 
-    # 4) Favorite number pattern
-    number_match = re.search(r"\bmy favorite number is\s+(\d+)\b", text, re.IGNORECASE)
-    if number_match:
-        facts['favorite_number'] = int(number_match.group(1))
-
-    # 5) Vehicle pattern (e.g., 'i drive a toyota camry')
+    # 4) Vehicle
     vehicle_match = re.search(r"\bi drive a\s+([A-Za-z\s]+)\b", text, re.IGNORECASE)
     if vehicle_match:
-        facts['vehicle'] = vehicle_match.group(1).strip()
+        facts["vehicle"] = vehicle_match.group(1).strip()
+
+    # In extract_lexical_facts, after the color match:
+    number_match = re.search(r"\bmy favorite number is\s+(\d+)\b", text, re.IGNORECASE)
+    if number_match:
+        facts["favorite_number"] = int(number_match.group(1))
+
 
     return facts
+
 
 # --- Routes ---
 @app.route("/")
