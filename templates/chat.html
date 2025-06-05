@@ -95,6 +95,7 @@
     }
   </style>
 </head>
+
 <body>
   <h2>Chat with "Pinky"</h2>
   <div id="status">Connecting...</div>
@@ -105,13 +106,21 @@
   <div class="input-container">
     <input id="user-input" type="text" placeholder="Type a message..." onkeydown="handleKey(event)" />
     <button onclick="sendMessage()">Send</button>
-    <button onclick="startDictation()" id="dictate-button">🎙️ Dictate</button>
   </div>
 
 <script>
+  function generateUUID() {
+    // Generates a UUID v4 compliant string
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
   let userId = localStorage.getItem('user_id');
   if (!userId) {
-    userId = crypto.randomUUID();
+    userId = generateUUID();
     localStorage.setItem('user_id', userId);
   }
 
@@ -187,11 +196,74 @@
   }
 
   document.addEventListener("DOMContentLoaded", async () => {
-    await checkOllamaStatus();
+    try {
+      await checkOllamaStatus();
+      // Other initialization code...
+    } catch (error) {
+      console.error("Initialization error:", error);
+    }
 
     document.getElementById("chat-box").style.display = "block";
     document.querySelector(".input-container").style.display = "flex";
     document.getElementById("user-input").focus();
+
+    async function initializeChat() {
+      const statusElem = document.getElementById("status");
+      const userId = localStorage.getItem("user_id");
+
+      try {
+        const res = await fetch(userId ? `/init?user_id=${userId}` : "/init");
+        const data = await res.json();
+        statusElem.textContent = "";
+        addMessage("ai", data.message);
+
+        // Store user_id from cookie if not in localStorage
+        if (!userId) {
+          const uidCookie = document.cookie
+            .split("; ")
+            .find(c => c.startsWith("user_id="));
+          if (uidCookie) {
+            localStorage.setItem("user_id", uidCookie.split("=")[1]);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to init:", err);
+        statusElem.textContent = "Failed to connect.";
+      }
+    }
+
+    function addMessage(role, message) {
+      const chatBox = document.getElementById("chat-box");
+      const messageElem = document.createElement("div");
+      messageElem.className = "message";
+      messageElem.innerHTML = `<span class="${role}">${role === "user" ? "You" : "Pinky"}:</span> ${message}`;
+      chatBox.appendChild(messageElem);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById("user-input");
+      const message = input.value.trim();
+      if (!message) return;
+
+      input.value = "";
+      addMessage("user", message);
+
+      try {
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
+
+        const data = await res.json();
+        addMessage("ai", data.response);
+      } catch (err) {
+        console.error("Chat error:", err);
+        addMessage("ai", "<span style='color:red;'>Error: Failed to contact backend.</span>");
+      }
+    }
+
 
     // Initial greeting or name send
     addMessage("user", "Friend");
@@ -208,69 +280,5 @@
     }
   });
 </script>
-
-
-  <script>
-    let mediaRecorder;
-    let audioChunks = [];
-
-    async function startDictation() {
-      const button = document.getElementById("dictate-button");
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("🎤 Microphone access is not supported in this browser.");
-        return;
-      }
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
-
-        mediaRecorder.ondataavailable = event => {
-          if (event.data.size > 0) audioChunks.push(event.data);
-        };
-
-        mediaRecorder.onstop = async () => {
-          const blob = new Blob(audioChunks, { type: 'audio/webm' });
-          const formData = new FormData();
-          formData.append('audio', blob, 'audio.webm');
-
-          button.textContent = "⏳ Transcribing...";
-          button.disabled = true;
-
-          try {
-            const res = await fetch("/transcribe", {
-              method: "POST",
-              body: formData
-            });
-
-            const data = await res.json();
-            if (data.text) {
-              document.getElementById("user-input").value = data.text;
-            } else {
-              alert("⚠️ Failed to transcribe.");
-            }
-          } catch (err) {
-            console.error("Transcription error:", err);
-            alert("❌ Error during transcription.");
-          } finally {
-            button.textContent = "🎙️ Dictate";
-            button.disabled = false;
-          }
-        };
-
-        mediaRecorder.start();
-        button.textContent = "🛑 Stop";
-        button.onclick = () => {
-          mediaRecorder.stop();
-          stream.getTracks().forEach(track => track.stop());
-          button.onclick = startDictation;
-        };
-      } catch (err) {
-        console.error("Microphone access denied:", err);
-        alert("❌ Microphone access denied.");
-      }
-    }
-  </script>
 </body>
 </html>

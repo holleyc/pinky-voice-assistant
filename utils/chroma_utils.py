@@ -138,12 +138,14 @@ def get_chat_history(user_id: str) -> List[Dict]:
 
 
 def get_global_context(query_text, n_results=5):
-    try:
-        collection = chroma_client.get_or_create_collection("global_lexical")
-        results = collection.query(query_texts=[query_text], n_results=n_results)
-        return results["documents"][0] if results["documents"] else []
-    except ValueError:
-        return []
+    collection = chroma_client.get_or_create_collection("global_lexical")
+    results = collection.query(query_texts=[query_text], n_results=n_results)
+    return results["documents"][0] if results["documents"] else []
+
+def add_global_fact(fact):
+    collection = chroma_client.get_or_create_collection("global_lexical")
+    collection.add(documents=[fact], ids=[str(uuid4())])
+
 
 def save_global_fact(fact):
     collection = chroma_client.get_or_create_collection("global_lexical")

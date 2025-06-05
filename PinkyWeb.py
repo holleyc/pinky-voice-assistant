@@ -8,6 +8,10 @@ import whisper
 import re
 import atexit
 from uuid import uuid4
+
+import spacy
+nlp = spacy.load("en_core_web_sm")
+
 from flask import (
     Flask, request, jsonify, render_template,
     session, make_response, send_from_directory
@@ -25,17 +29,9 @@ from memory import (
 from utils.qr_utils import generate_qr_base64
 from utils.chroma_utils import (
     get_or_create_user_id, save_user_name, get_saved_user_name,
-    save_message_to_chroma, get_relevant_context, get_chat_history
-)
-
-from utils.chroma_utils import get_global_context
-
-from utils.chroma_utils import (
-    get_or_create_user_id, save_user_name, get_saved_user_name,
     save_message_to_chroma, get_relevant_context, get_chat_history,
-    save_lexical_facts, get_lexical_context  # ✅ add these
+    save_lexical_facts, get_lexical_context, get_global_context
 )
-
 
 # Register profile save on exit
 atexit.register(save_profiles_to_disk)
@@ -48,23 +44,19 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 
 # --- Helper Functions ---
 def get_user_id():
-    # Priority: JSON payload > Cookie > Session > Generate new
     user_id = (
         request.json.get("user_id")
         if request.is_json and "user_id" in request.json
         else request.cookies.get("user_id")
         or session.get("user_id")
     )
-
     if not user_id:
         user_id = str(uuid4())
         print(f"[get_user_id] Generated new user_id: {user_id}")
     else:
         print(f"[get_user_id] Using existing user_id: {user_id}")
-
     session["user_id"] = user_id
     return user_id
-
 
 def chat_with_ollama(messages):
     payload = {"model": "pinky", "messages": messages, "stream": False}
@@ -72,39 +64,9 @@ def chat_with_ollama(messages):
     response.raise_for_status()
     return response.json().get("message", {}).get("content", "")
 
-import re
-
-def extract_lexical_facts(user_input):
-    facts = {}
-    # Patterns for name
-    name_patterns = [
-        r"my name is (\w+)",
-        r"i am (\w+)",
-        r"call me (\w+)"
-    ]
-    for pattern in name_patterns:
-        match = re.search(pattern, user_input, re.IGNORECASE)
-        if match:
-            facts['name'] = match.group(1)
-            break
-
-    # Pattern for age
-    age_match = re.search(r"my age is (\d+)", user_input, re.IGNORECASE)
-    if age_match:
-        facts['age'] = int(age_match.group(1))
-
-    # Pattern for favorite color
-    color_match = re.search(r"my favorite color is (\w+)", user_input, re.IGNORECASE)
-    if color_match:
-        facts['favorite_color'] = color_match.group(1)
-
-    # Pattern for vehicle
-    vehicle_match = re.search(r"i drive a (\w+)", user_input, re.IGNORECASE)
-    if vehicle_match:
-        facts['vehicle'] = vehicle_match.group(1)
-
-    return facts
-
+def extract_lexical_facts(text):
+    doc = nlp(text)
+    return list(set(ent.text for ent in doc.ents if ent.label_ not in {"CARDINAL", "ORDINAL"}))
 
 # --- Routes ---
 @app.route("/")
@@ -117,20 +79,6 @@ def login():
         save_user_name(get_user_id(), request.form["username"])
         return render_template("chat.html")
     return render_template("login.html")
-
-@app.route("/transcribe", methods=["POST"])
-def transcribe():
-    audio = request.files.get("audio")
-    if not audio:
-        return jsonify({"error": "No audio uploaded"}), 400
-
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp:
-        audio.save(temp.name)
-        try:
-            result = model.transcribe(temp.name)
-            return jsonify({"text": result["text"]})
-        except Exception as e:
-            return jsonify({"error": f"Transcription failed: {e}"}), 500
 
 @app.route("/init", methods=["GET"])
 def init_chat():
@@ -149,16 +97,18 @@ def view_profile():
     profile = get_user_profile(user_id)
     return jsonify(profile)
 
-@app.route("/upload_global_facts", methods=["POST"])
-def upload_global_facts():
-    if not request.json or "facts" not in request.json:
-        return jsonify({"error": "Provide JSON with a 'facts' list"}), 400
-
-    facts = request.json["facts"]
-    for fact in facts:
-        save_global_fact(fact)
-    return jsonify({"message": f"✅ {len(facts)} facts saved to global knowledge base."})
-
+@app.route("/transcribe", methods=["POST"])
+def transcribe():
+    audio = request.files.get("audio")
+    if not audio:
+        return jsonify({"error": "No audio uploaded"}), 400
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp:
+        audio.save(temp.name)
+        try:
+            result = model.transcribe(temp.name)
+            return jsonify({"text": result["text"]})
+        except Exception as e:
+            return jsonify({"error": f"Transcription failed: {e}"}), 500
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -168,31 +118,31 @@ def chat():
 
     save_message_to_chroma(user_id, "user", user_input)
 
-    # Handle name learning
     if not user_name:
         save_user_name(user_id, user_input)
         return jsonify({"response": f"Nice to meet you, {user_input}!"})
 
-    # Fetch contexts
-    chat_context = get_relevant_context(user_id, user_input)
-    lexical_facts = get_lexical_context(user_id, user_input)
-    lexical_context = [{"role": "system", "content": f"Relevant knowledge: {fact}"} for fact in lexical_facts]
-    global_context_facts = get_global_context(user_input)
-    global_context = [{"role": "system", "content": f"Shared knowledge: {fact}"} for fact in global_context_facts]
-
-    # Build full message history
-    messages = global_context + lexical_context + chat_context + [{"role": "user", "content": user_input}]
-
     try:
+        lexical_facts = get_lexical_context(user_id, user_input)
+        lexical_context = [{"role": "system", "content": f"Relevant knowledge: {fact}"} for fact in lexical_facts]
+
+        global_facts = get_global_context(user_input)
+        global_context = [{"role": "system", "content": f"Global fact: {fact}"} for fact in global_facts]
+
+        chat_context = get_relevant_context(user_id, user_input)
+
+        messages = lexical_context + global_context + chat_context + [{"role": "user", "content": user_input}]
+
         response = chat_with_ollama(messages)
         if not response:
             return jsonify({"response": "⚠️ Empty or malformed LLM response."})
 
         save_message_to_chroma(user_id, "assistant", response)
 
-        lexical_data = extract_lexical_facts(response)
-        if lexical_data:
-            save_lexical_facts(user_id, lexical_data)
+        combined_text = f"{user_input} {response}"
+        facts = extract_lexical_facts(combined_text)
+        if facts:
+            save_lexical_facts(user_id, facts)
 
         return jsonify({"response": response})
 
@@ -202,7 +152,6 @@ def chat():
         return jsonify({"response": f"⚠️ Ollama HTTP error: {e}"}), 500
     except Exception as e:
         return jsonify({"response": f"⚠️ Unexpected error: {e}"}), 500
-
 
 @app.route("/ollama_healthcheck")
 def ollama_healthcheck():
@@ -215,6 +164,21 @@ def ollama_healthcheck():
         return jsonify({"status": "error", "message": f"❌ HTTP error: {e}"}), 500
     except Exception as e:
         return jsonify({"status": "error", "message": f"❌ Error: {e}"}), 500
+
+@app.route("/memory")
+def memory():
+    user_id = get_user_id()
+    collection = chroma_client.get_or_create_collection(f"{user_id}_lexical")
+    data = collection.get()
+    return render_template("memory.html", facts=data["documents"])
+
+@app.route("/upload_global_facts", methods=["POST"])
+def upload_global_facts():
+    if not request.json or "facts" not in request.json:
+        return jsonify({"error": "Provide JSON with a 'facts' list"}), 400
+    for fact in request.json["facts"]:
+        save_global_fact(fact)
+    return jsonify({"message": f"✅ {len(request.json['facts'])} facts saved to global knowledge base."})
 
 @app.route("/qr")
 @app.route("/pair")
