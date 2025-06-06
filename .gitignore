@@ -143,3 +143,6 @@ user_profiles/*.json
 user_profiles.json
 
 propts.txt
+logs/chroma_events.jsonl
+logs/interactions.jsonl
+logs/memory_events.jsonl
