@@ -121,6 +121,47 @@
     }
   }
 
+    // load stored history on startup
+  function loadLocalHistory() {
+    const hist = JSON.parse(localStorage.getItem("chat_history") || "[]");
+    hist.forEach(({role, message}) => addMessage(role, message));
+  }
+
+  // after every new message, append to localStorage
+  function saveLocalMessage(role, message) {
+    const hist = JSON.parse(localStorage.getItem("chat_history") || "[]");
+    hist.push({role, message, ts: Date.now()});
+    localStorage.setItem("chat_history", JSON.stringify(hist));
+  }
+
+  function addMessage(role, message) {
+    const chatBox = document.getElementById("chat-box");
+    const messageElem = document.createElement("div");
+    messageElem.className = "message";
+    messageElem.innerHTML = `<span class="${role==='user'?'user':'ai'}">${role==='user'?'You':'Pinky'}:</span> ${message}`;
+    chatBox.appendChild(messageElem);
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    // store it locally
+    saveLocalMessage(role, message);
+  }
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    // first load Ollama status, etc...
+    await checkOllamaStatus();
+
+    // then load any prior conversation
+    loadLocalHistory();
+
+    // proceed to initialize chat UI...
+    document.getElementById("chat-box").style.display = "block";
+    document.querySelector(".input-container").style.display = "flex";
+    document.getElementById("user-input").focus();
+
+    // then send your “Friend” init message (if you do that)
+    // ...
+  });
+
   // ---- Add message to chat box ----
   function addMessage(role, message, lexicalFacts = null) {
     const chatBox = document.getElementById("chat-box");

@@ -106,28 +106,47 @@ def chat_with_ollama(messages: list) -> str:
     return response.json().get("message", {}).get("content", "")
 
 
+import re
+
 def extract_lexical_facts(text):
     facts = {}
     text = text.strip()
 
     patterns = [
-        (r"\bmy name is ([A-Z][a-zA-Z]+)", "name"),
-        (r"\bcall me ([A-Z][a-zA-Z]+)", "name"),
-        (r"\bmy age is (\d+)", "age"),
-        (r"\bmy favorite color is ([a-zA-Z ]+)", "favorite_color"),
-        (r"\bmy favorite number is (\d+)", "favorite_number"),
-        (r"\bi drive a ([A-Z][\w\s]+)", "vehicle"),
+        # name patterns (only capture once)
+        (r"\bmy name is\s+([A-Za-z][A-Za-z\s]+)", "name"),
+        (r"\bcall me\s+([A-Za-z][A-Za-z\s]+)", "name"),
+
+        # age
+        (r"\bmy age is\s+(\d+)", "age"),
+
+        # favorite color (greedy)
+        (r"\bmy favorite color is\s+([A-Za-z\s]+)", "favorite_color"),
+
+        # favorite number
+        (r"\bmy favorite number is\s+(\d+)", "favorite_number"),
+
+        # vehicle (greedy)
+        (r"\bi drive a\s+([A-Za-z0-9\s]+)", "vehicle"),
     ]
 
     for pattern, label in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            value = match.group(1).strip()
-            if label in ["age", "favorite_number"]:
-                value = int(value)
-            facts[label] = value
+        if not match:
+            continue
+
+        raw = match.group(1).strip()
+        # convert numeric values
+        if label in ("age", "favorite_number"):
+            try:
+                facts[label] = int(raw)
+            except ValueError:
+                continue
+        else:
+            facts[label] = raw
 
     return facts
+
 
 
 
