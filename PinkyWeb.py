@@ -106,39 +106,30 @@ def chat_with_ollama(messages: list) -> str:
     return response.json().get("message", {}).get("content", "")
 
 
-def extract_lexical_facts(text: str) -> dict:
-    """
-    Regex‐based extraction of common “facts” from a user’s utterance.
-    Returns a dict like {"name": "Alice", "age": 30, ...}, or {} if none.
-    """
+def extract_lexical_facts(text):
     facts = {}
+    text = text.strip()
 
-    # 1) Name: “my name is Alice” or “call me Bob”
-    name_match = re.search(r"\b(?:my name is|call me)\s+([A-Z][a-z]+)\b", text)
-    if name_match:
-        facts["name"] = name_match.group(1)
+    patterns = [
+        (r"\bmy name is ([A-Z][a-zA-Z]+)", "name"),
+        (r"\bcall me ([A-Z][a-zA-Z]+)", "name"),
+        (r"\bmy age is (\d+)", "age"),
+        (r"\bmy favorite color is ([a-zA-Z ]+)", "favorite_color"),
+        (r"\bmy favorite number is (\d+)", "favorite_number"),
+        (r"\bi drive a ([A-Z][\w\s]+)", "vehicle"),
+    ]
 
-    # 2) Age: “my age is 48”
-    age_match = re.search(r"\bmy age is\s+(\d+)\b", text, re.IGNORECASE)
-    if age_match:
-        facts["age"] = int(age_match.group(1))
-
-    # 3) Favorite color: “my favorite color is light blue”
-    color_match = re.search(r"\bmy favorite color is\s+([A-Za-z\s]+)\b", text, re.IGNORECASE)
-    if color_match:
-        facts["favorite_color"] = color_match.group(1).strip()
-
-    # 4) Favorite number: “my favorite number is 7”
-    number_match = re.search(r"\bmy favorite number is\s+(\d+)\b", text, re.IGNORECASE)
-    if number_match:
-        facts["favorite_number"] = int(number_match.group(1))
-
-    # 5) Vehicle: “I drive a Toyota Camry TRD”
-    vehicle_match = re.search(r"\bi drive a\s+([A-Za-z\s]+)\b", text, re.IGNORECASE)
-    if vehicle_match:
-        facts["vehicle"] = vehicle_match.group(1).strip()
+    for pattern, label in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            value = match.group(1).strip()
+            if label in ["age", "favorite_number"]:
+                value = int(value)
+            facts[label] = value
 
     return facts
+
+
 
 
 # ------------------------------------------------------------------------------
@@ -183,11 +174,25 @@ def init_chat():
     user_id = get_user_id()
 
     # 1) Ensure the user profile file exists
-    user_profile = get_user_profile(user_id)
-    save_profile_to_disk(user_id, user_profile)
+    try:
+        user_profile = get_user_profile(user_id)
+        save_profile_to_disk(user_id, user_profile)
+    except Exception as e:
+        log_event("init_load_profile_error", {
+            "user_id": user_id,
+            "error": str(e)
+        })
 
     # 2) Figure out greeting
-    name = get_saved_user_name(user_id)
+    name = None
+    try:
+        name = get_saved_user_name(user_id)
+    except Exception as e:
+        log_event("init_saved_user_name_error", {
+            "user_id": user_id,
+            "error": str(e)
+        })
+
     message = f"Welcome back, {name}!" if name else "Hi! What’s your name?"
 
     # 3) Log this “init” event
@@ -207,7 +212,15 @@ def view_profile():
     if not user_id:
         return jsonify({"error": "User not identified"}), 404
 
-    profile = get_user_profile(user_id)
+    try:
+        profile = get_user_profile(user_id)
+    except Exception as e:
+        log_event("view_profile_error", {
+            "user_id": user_id,
+            "error": str(e)
+        })
+        return jsonify({"error": "Could not load your profile."}), 500
+
     log_event("view_profile", {"user_id": user_id, "profile": profile})
     return jsonify(profile)
 
@@ -237,7 +250,15 @@ def chat():
             "user_input": user_input
         })
 
-        user_profile = get_user_profile(user_id)
+        try:
+            user_profile = get_user_profile(user_id)
+        except Exception as e:
+            log_event("load_profile_error", {
+                "user_id": user_id,
+                "error": str(e)
+            })
+            user_profile = {"facts": {}}
+
         user_name = user_profile.get("facts", {}).get("name")
 
         # -----------------------------
@@ -264,7 +285,6 @@ def chat():
                 "value_found": value if was_found else None,
                 "was_found": was_found
             })
-
             return jsonify({"response": response_text, "lexical_facts": {}})
 
         # “What do I drive?”
@@ -301,15 +321,34 @@ def chat():
         # ---------------------------------
         #  3) Add user utterance to vector memory
         # ---------------------------------
-        add_user_memory(user_id, user_input, metadata={"role": "user"})
-        save_message_to_chroma(user_id, "user", user_input)
+        try:
+            add_user_memory(user_id, user_input, metadata={"role": "user"})
+            save_message_to_chroma(user_id, "user", user_input)
+            log_event("add_user_memory", {
+                "user_id": user_id,
+                "text_snippet": user_input[:50],
+                "text_length": len(user_input),
+                "metadata": {"role": "user", "user_id": user_id}
+            })
+        except Exception as e:
+            log_event("add_user_memory_error", {
+                "user_id": user_id,
+                "error": str(e)
+            })
 
         # ---------------------------------
         #  4) If no name yet, treat this as name
         # ---------------------------------
         if not user_name:
+            # This is the first turn: treat literally as name
             user_profile["facts"]["name"] = user_input
-            save_profile_to_disk(user_id, user_profile)
+            try:
+                save_profile_to_disk(user_id, user_profile)
+            except Exception as e:
+                log_event("save_profile_error", {
+                    "user_id": user_id,
+                    "error": str(e)
+                })
 
             log_event("fact_extraction", {
                 "user_id": user_id,
@@ -325,8 +364,16 @@ def chat():
         #  5) Normal LLM chat flow
         # ---------------------------------
         #   a) Retrieve vector‐memory context
-        user_mem_results = query_user_memory(user_id, user_input, n_results=5)
-        global_mem_results = query_global_memory(user_input, n_results=3)
+        try:
+            user_mem_results = query_user_memory(user_id, user_input, n_results=5)
+            global_mem_results = query_global_memory(user_input, n_results=3)
+        except Exception as e:
+            log_event("memory_query_error", {
+                "user_id": user_id,
+                "error": str(e),
+                "user_input": user_input
+            })
+            user_mem_results, global_mem_results = {"documents": [[]]}, {"documents": [[]]}
 
         chat_context = [
             {"role": "system", "content": doc}
@@ -349,7 +396,6 @@ def chat():
                 "messages": messages
             })
             raise
-
         llm_end = datetime.utcnow()
         latency_ms = int((llm_end - llm_start).total_seconds() * 1000)
 
@@ -362,8 +408,20 @@ def chat():
         })
 
         #   d) Save assistant reply to vector memory
-        add_user_memory(user_id, response_text, metadata={"role": "assistant"})
-        save_message_to_chroma(user_id, "assistant", response_text)
+        try:
+            add_user_memory(user_id, response_text, metadata={"role": "assistant"})
+            save_message_to_chroma(user_id, "assistant", response_text)
+            log_event("add_user_memory", {
+                "user_id": user_id,
+                "text_snippet": response_text[:50],
+                "text_length": len(response_text),
+                "metadata": {"role": "assistant", "user_id": user_id}
+            })
+        except Exception as e:
+            log_event("add_user_memory_error", {
+                "user_id": user_id,
+                "error": str(e)
+            })
 
         if not response_text:
             return jsonify({"response": "⚠️ Empty or malformed LLM response.", "lexical_facts": {}})
@@ -386,15 +444,29 @@ def chat():
         if lexical_data:
             for key, value in lexical_data.items():
                 if value is not None and value != "":
-                    update_user_fact(user_id, key, value)
+                    try:
+                        update_user_fact(user_id, key, value)
+                    except Exception as e:
+                        log_event("update_user_fact_error", {
+                            "user_id": user_id,
+                            "key": key,
+                            "value": value,
+                            "error": str(e)
+                        })
 
             # Log profile after update
-            updated_profile = get_user_profile(user_id).get("facts", {}).copy()
-            log_event("profile_update", {
-                "user_id": user_id,
-                "new_facts": lexical_data,
-                "profile_after": updated_profile
-            })
+            try:
+                updated_profile = get_user_profile(user_id).get("facts", {}).copy()
+                log_event("profile_update", {
+                    "user_id": user_id,
+                    "new_facts": lexical_data,
+                    "profile_after": updated_profile
+                })
+            except Exception as e:
+                log_event("profile_after_fetch_error", {
+                    "user_id": user_id,
+                    "error": str(e)
+                })
 
         # ---------------------------------
         #  7) Return to front‐end

@@ -36,10 +36,10 @@ def log_chroma_event(event_type: str, data: dict):
 
 
 # === CONFIGURATION ===
-CHROMA_DB_PATH = "./chroma_db"
-CHAT_COLLECTION_NAME = "Pinkys_Brain"
-LEXICAL_COLLECTION_NAME = "lexical_facts"       # Single collection for all users’ facts
-GLOBAL_LEX_COLLECTION_NAME = "global_lexical"   # Single collection for global facts
+CHROMA_DB_PATH            = "./chroma_db"
+CHAT_COLLECTION_NAME      = "Pinkys_Brain"
+LEXICAL_COLLECTION_NAME   = "lexical_facts"       # Single collection for all users’ facts
+GLOBAL_LEX_COLLECTION_NAME = "global_lexical"      # Single collection for global facts
 
 # === CHROMADB CLIENT SETUP ===
 client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
