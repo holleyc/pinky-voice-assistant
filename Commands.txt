@@ -12,3 +12,7 @@ ollama serve
 
 # List models (should return JSON)
 curl http://localhost:11434/models
+
+
+chmod +x update_models.sh
+./update_models.sh
