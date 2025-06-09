@@ -100,7 +100,8 @@ def chat_with_ollama(messages: list) -> str:
     """
     Send a non‐streaming request to Ollama. Raises on HTTP errors.
     """
-    payload = {"model": "pinky", "messages": messages, "stream": False}
+    #payload = {"model": "pinky", "messages": messages, "stream": False}
+    payload = {"model": "openchat", "messages": messages, "stream": False}
     response = requests.post(OLLAMA_URL, json=payload)
     response.raise_for_status()
     return response.json().get("message", {}).get("content", "")
