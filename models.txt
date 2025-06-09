@@ -1,0 +1,6 @@
+# models.txt
+llama2
+mistral
+codellama
+gemma
+phi
