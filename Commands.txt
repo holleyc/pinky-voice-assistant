@@ -1,0 +1,14 @@
+
+venv/bin/python -m pip freeze > requirements1660.txt
+
+
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements1660.txt
+
+ollama serve
+
+
+# List models (should return JSON)
+curl http://localhost:11434/models
