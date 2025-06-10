@@ -16,3 +16,7 @@ curl http://localhost:11434/models
 
 chmod +x update_models.sh
 ./update_models.sh
+
+
+ollama create my-custom-model -f Modelfile
+ollama run my-custom-model
