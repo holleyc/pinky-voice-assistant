@@ -22,3 +22,5 @@ ollama create my-custom-model -f Modelfile
 ollama run my-custom-model
 
 python3 real_time_transcribe.py --model small --device cuda --rate 16000 --block 0.5 --silence 2
+
+bummer
