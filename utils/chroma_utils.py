@@ -11,6 +11,9 @@ from uuid import uuid4
 from sentence_transformers import SentenceTransformer
 from datetime import datetime
 
+from typing import List
+from memory import chroma_client
+
 # ------------------------------------------------------------------------------
 #                             Setup Logging
 # ------------------------------------------------------------------------------
@@ -130,6 +133,30 @@ def get_or_create_user_id(request) -> str:
         log_chroma_event("get_or_create_user_id_generated", {"user_id": user_id})
     return user_id
 
+def extract_text_from_html(html: str) -> str:
+    # (If you want to pull this out of the route)
+    # … same BeautifulSoup logic …
+    pass
+
+def chunk_text(text: str, chunk_size: int=500, overlap: int=50) -> List[str]:
+    tokens = text.split()
+    chunks = []
+    i = 0
+    while i < len(tokens):
+        chunk = tokens[i : i + chunk_size]
+        chunks.append(" ".join(chunk))
+        i += chunk_size - overlap
+    return chunks
+
+def embed_and_store(user_id: str, docs: List[str], source: str):
+    embeddings = [embedder.encode(d).tolist() for d in docs]
+    metadatas = [{"source": source, "chunk_index": i} for i in range(len(docs))]
+    chroma_client.add(
+        collection_name=user_id,  # or a shared “pinky_web_pages” collection
+        embeddings=embeddings,
+        documents=docs,
+        metadatas=metadatas,
+    )
 
 # ------------------------------------------------------------------------------
 #                                USER NAME

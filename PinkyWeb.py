@@ -9,6 +9,11 @@ import re
 import atexit
 from uuid import uuid4
 from datetime import datetime
+from memory import global_mem_col
+
+
+import requests
+from bs4 import BeautifulSoup
 
 from flask import (
     Flask, request, jsonify, render_template,
@@ -155,6 +160,7 @@ def extract_lexical_facts(text):
 # ------------------------------------------------------------------------------
 #                                  Routes
 # ------------------------------------------------------------------------------
+
 
 @app.route("/")
 def index():
@@ -564,6 +570,79 @@ def reset():
 @app.route("/images/<path:filename>")
 def serve_images(filename):
     return send_from_directory('images', filename)
+
+@app.route("/upload_url", methods=["GET"])
+def show_url_upload_form():
+    return render_template("upload_url.html")
+
+@app.route('/upload_url', methods=['GET', 'POST'])
+def handle_url_upload():
+    if request.method == 'GET':
+        return render_template('upload_url.html')
+
+    # POST
+    data = request.get_json() or {}
+    url = data.get("url", "").strip()
+    user_id = session.get("user_id", "default")
+
+    try:
+        from utils.web_loader import upload_url_to_chroma
+        result = upload_url_to_chroma(
+            url,
+            user_id,
+            collection=global_mem_col   # pass the actual collection object!
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)})
+
+
+
+
+# Reuse existing helpers:
+# from utils.chroma_utils import chunk_text, embed_and_store
+
+# --- New route: website ingestion ---
+@app.route("/upload-website", methods=["POST"])
+def upload_website():
+    """
+    Ingest any public webpage into ChromaDB under the current user.
+    POST JSON: { "url": "https://..." }
+    Returns: { status: "ok", chunks: N }
+    """
+    data = request.get_json() or {}
+    url = data.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "Missing URL"}), 400
+
+    user_id = get_user_id()
+
+    try:
+        # 1) Fetch HTML
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+
+        # 2) Extract visible text
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer"]):
+            tag.decompose()
+        text = soup.get_text(separator=" ", strip=True)
+
+        # 3) Chunk text into manageable pieces
+        chunks = chunk_text(text, chunk_size=500, overlap=50)
+
+        # 4) Embed & store each chunk in ChromaDB
+        embed_and_store(user_id, chunks, source=url)
+
+        return jsonify({"status": "ok", "chunks": len(chunks)}), 200
+
+    except Exception as e:
+        log_event("website_ingest_error", {
+            "user_id": session.get("user_id"),
+            "url": url,
+            "error": str(e)
+        })
+        return jsonify({"error": str(e)}), 500
 
 
 # ------------------------------------------------------------------------------

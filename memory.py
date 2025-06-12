@@ -17,7 +17,9 @@ os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
 
 # === CHROMADB SETUP ===
 print("[memory.py] Initializing ChromaDB...")
-client       = PersistentClient(path=CHROMA_PERSIST_DIR)
+client = PersistentClient(path=CHROMA_PERSIST_DIR)
+chroma_client = client  # Expose for external import
+
 embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
     model_name="all-MiniLM-L6-v2"
 )
