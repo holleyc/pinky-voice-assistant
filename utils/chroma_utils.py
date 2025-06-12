@@ -6,6 +6,7 @@ import shutil
 import re
 import chromadb
 import json
+import torch
 from typing import List, Dict, Optional
 from uuid import uuid4
 from sentence_transformers import SentenceTransformer
@@ -18,9 +19,16 @@ from memory import chroma_client
 #                             Setup Logging
 # ------------------------------------------------------------------------------
 
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 LOG_DIR = "logs"
 LOG_FILE = os.path.join(LOG_DIR, "chroma_events.jsonl")
 os.makedirs(LOG_DIR, exist_ok=True)
+
+try:
+    embedder = SentenceTransformer("all-MiniLM-L6-v2", device=DEVICE)
+except Exception as e:
+    print("⚠️ CUDA init failed or not available—falling back to CPU embeddings.")
+    embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
 
 def log_chroma_event(event_type: str, data: dict):
     """
