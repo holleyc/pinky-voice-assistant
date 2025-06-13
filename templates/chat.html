@@ -13,14 +13,22 @@
       padding: 1rem;
       line-height: 1.6;
     }
-
     h2 {
       color: #ff4d4d;
       text-align: center;
       font-size: 1.8rem;
       margin-bottom: 1rem;
     }
-
+    #status, #ollama-status {
+      text-align: center;
+      font-size: 1rem;
+      color: #999;
+      margin-bottom: 1rem;
+    }
+    #ollama-status {
+      font-size: 0.9rem;
+      font-style: italic;
+    }
     #chat-box {
       border: 1px solid #444;
       background: #2a2a2a;
@@ -31,22 +39,18 @@
       font-size: 1.1rem;
       margin-bottom: 1rem;
     }
-
     .message {
       margin-bottom: 1rem;
       word-wrap: break-word;
     }
-
     .user { color: #ff4d4d; font-weight: bold; }
-    .ai { color: #50fa7b; font-weight: bold; }
-
+    .ai   { color: #50fa7b; font-weight: bold; }
     .input-container {
       display: flex;
       gap: 0.5rem;
       width: 100%;
       margin-bottom: 1rem;
     }
-
     .input-container input[type="text"] {
       flex: 1;
       padding: 1rem;
@@ -56,7 +60,6 @@
       border: 1px solid #444;
       border-radius: 6px;
     }
-
     .input-container button {
       padding: 1rem 1.5rem;
       font-size: 1.1rem;
@@ -67,26 +70,28 @@
       cursor: pointer;
       font-weight: bold;
     }
-
     .input-container button:hover {
       background: #e63946;
     }
-
-    #status, #ollama-status {
-      text-align: center;
-      font-size: 1rem;
+    #logout-btn {
+      background: transparent;
+      border: none;
       color: #999;
-      margin-bottom: 1rem;
-    }
-
-    #ollama-status {
+      cursor: pointer;
       font-size: 0.9rem;
-      font-style: italic;
+      margin-left: auto;
+      margin-bottom: 1rem;
+      display: block;
+    }
+    #logout-btn:hover {
+      color: #f0f0f0;
     }
   </style>
 </head>
 <body>
+
   <h2>Chat with "Pinky"</h2>
+  <button id="logout-btn">Clear Profile & History</button>
   <div id="status">Connecting...</div>
   <div id="ollama-status">Checking Ollama status...</div>
   <div id="chat-box"></div>
@@ -97,166 +102,107 @@
   </div>
 
 <script>
-  // ---- Generate UUID v4 fallback for older browsers ----
-  function generateUUID() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
+  // — Profile & history storage (no visual reload) —
+  function clearAll() {
+    const uid = getUserId();
+    localStorage.removeItem('user_id');
+    localStorage.removeItem('chat_history_' + uid);
+    fetch('/reset');
+    window.location.reload();
   }
+  document.getElementById('logout-btn').onclick = clearAll;
 
-  // ---- Setup persistent user ID in localStorage ----
-  let userId = localStorage.getItem("user_id");
-  if (!userId) {
-    userId = generateUUID();
-    localStorage.setItem("user_id", userId);
-  }
-
-  // ---- Handle sending message on Enter key ----
-  function handleKey(event) {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      sendMessage();
-    }
-  }
-
-    // load stored history on startup
-  function loadLocalHistory() {
-    const hist = JSON.parse(localStorage.getItem("chat_history") || "[]");
-    hist.forEach(({role, message}) => addMessage(role, message));
-  }
-
-  // after every new message, append to localStorage
-  function saveLocalMessage(role, message) {
-    const hist = JSON.parse(localStorage.getItem("chat_history") || "[]");
-    hist.push({role, message, ts: Date.now()});
-    localStorage.setItem("chat_history", JSON.stringify(hist));
-  }
-
-  function addMessage(role, message) {
-    const chatBox = document.getElementById("chat-box");
-    const messageElem = document.createElement("div");
-    messageElem.className = "message";
-    messageElem.innerHTML = `<span class="${role==='user'?'user':'ai'}">${role==='user'?'You':'Pinky'}:</span> ${message}`;
-    chatBox.appendChild(messageElem);
-    chatBox.scrollTop = chatBox.scrollHeight;
-
-    // store it locally
-    saveLocalMessage(role, message);
-  }
-
-  document.addEventListener("DOMContentLoaded", async () => {
-    // first load Ollama status, etc...
-    await checkOllamaStatus();
-
-    // then load any prior conversation
-    loadLocalHistory();
-
-    // proceed to initialize chat UI...
-    document.getElementById("chat-box").style.display = "block";
-    document.querySelector(".input-container").style.display = "flex";
-    document.getElementById("user-input").focus();
-
-    // then send your “Friend” init message (if you do that)
-    // ...
-  });
-
-  // ---- Add message to chat box ----
-  function addMessage(role, message, lexicalFacts = null) {
-    const chatBox = document.getElementById("chat-box");
-    const messageElem = document.createElement("div");
-    messageElem.className = "message";
-    messageElem.innerHTML = `<span class="${role}">${role === "user" ? "You" : "Pinky"}:</span> ${message}`;
-
-    if (lexicalFacts && Object.keys(lexicalFacts).length > 0) {
-      const factsElem = document.createElement("pre");
-      factsElem.style.background = "#333";
-      factsElem.style.padding = "0.5rem";
-      factsElem.style.marginTop = "0.3rem";
-      factsElem.style.borderRadius = "4px";
-      factsElem.style.color = "#aaa";
-      factsElem.textContent = `Extracted Facts: ${JSON.stringify(lexicalFacts, null, 2)}`;
-      messageElem.appendChild(factsElem);
-    }
-
-    chatBox.appendChild(messageElem);
-    chatBox.scrollTop = chatBox.scrollHeight;
-  }
-
-  // ---- Send message to backend ----
-  async function sendMessage() {
-    const input = document.getElementById("user-input");
-    const message = input.value.trim();
-    if (!message) return;
-
-    input.value = "";
-    addMessage("user", message);
-
-    try {
-      const res = await fetch("/chat", {
-        method: "POST",
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message })
+  function getUserId() {
+    let id = localStorage.getItem('user_id');
+    if (!id) {
+      id = crypto.randomUUID?.() || 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{
+        const r = Math.random()*16|0, v=c=='x'?r:(r&0x3|0x8);
+        return v.toString(16);
       });
+      localStorage.setItem('user_id', id);
+    }
+    return id;
+  }
 
-      const data = await res.json();
-      addMessage("ai", data.response, data.lexical_facts);
-    } catch (err) {
-      console.error("Chat error:", err);
-      addMessage("ai", "<span style='color:red;'>Error: Failed to contact backend.</span>");
+  function historyKey() { return 'chat_history_' + getUserId(); }
+  function saveHistory(role, msg) {
+    const arr = JSON.parse(localStorage.getItem(historyKey())||'[]');
+    arr.push({role,msg,ts:Date.now()});
+    localStorage.setItem(historyKey(), JSON.stringify(arr));
+  }
+
+  // — UI rendering —
+  function addMessage(role, txt, facts) {
+    const box = document.getElementById('chat-box');
+    const el = document.createElement('div');
+    el.className = 'message';
+    el.innerHTML = `<span class="${role}">${role==='user'?'You':'Pinky'}:</span> ${txt}`;
+    if (facts && Object.keys(facts).length) {
+      const pre = document.createElement('pre');
+      pre.style.cssText = 'background:#333;padding:.5rem;margin-top:.3rem;border-radius:4px;color:#aaa';
+      pre.textContent = 'Extracted Facts: ' + JSON.stringify(facts,null,2);
+      el.appendChild(pre);
+    }
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+    saveHistory(role, txt);
+  }
+
+  // — Ollama health —
+  async function checkOllama() {
+    const st = document.getElementById('ollama-status');
+    try {
+      const r = await fetch('/ollama_healthcheck');
+      const d = await r.json();
+      st.textContent = d.status==='success' 
+        ? '🟢 Ollama online!' 
+        : '🔴 Ollama offline: '+d.message;
+      st.style.color = d.status==='success' ? '#50fa7b' : '#ff4d4d';
+    } catch {
+      st.textContent = '🔴 Error checking Ollama.';
+      st.style.color = '#ff4d4d';
     }
   }
 
-  // ---- Check if Ollama is online ----
-  async function checkOllamaStatus() {
-    const statusElem = document.getElementById("ollama-status");
+  // — Chat send/receive —
+  function handleKey(e){ if(e.key==='Enter'){e.preventDefault();sendMessage();} }
+  async function sendMessage(){
+    const input = document.getElementById('user-input');
+    const msg = input.value.trim();
+    if (!msg) return;
+    input.value = '';
+    addMessage('user', msg);
     try {
-      const res = await fetch("/ollama_healthcheck");
-      const data = await res.json();
-
-      if (data.status === "success") {
-        statusElem.textContent = "🟢 Ollama is online!";
-        statusElem.style.color = "#50fa7b";
-        statusElem.style.fontStyle = "normal";
-      } else {
-        statusElem.textContent = "🔴 Ollama offline: " + data.message;
-        statusElem.style.color = "#ff4d4d";
-        statusElem.style.fontStyle = "italic";
-      }
-    } catch (err) {
-      statusElem.textContent = "🔴 Error checking Ollama status.";
-      statusElem.style.color = "#ff4d4d";
-      statusElem.style.fontStyle = "italic";
+      const res = await fetch('/chat', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ user_id: getUserId(), message: msg })
+      });
+      const d = await res.json();
+      addMessage('ai', d.response, d.lexical_facts);
+    } catch {
+      addMessage('ai', '⚠️ Error: backend unreachable.');
     }
   }
 
-  // ---- Initialize chat session on page load ----
-  document.addEventListener("DOMContentLoaded", async () => {
-    const statusElem = document.getElementById("status");
-    await checkOllamaStatus();
-
+  // — Initialization (only new greeting, no history injection) —
+  async function init() {
+    document.getElementById('status').textContent = '';
     try {
-      const res = await fetch(`/init?user_id=${userId}`);
-      const data = await res.json();
-      statusElem.textContent = "";
-      addMessage("ai", data.message);
-
-      // Store user_id from cookie if localStorage was empty
-      if (!localStorage.getItem("user_id")) {
-        const uidCookie = document.cookie
-          .split("; ")
-          .find(c => c.startsWith("user_id="));
-        if (uidCookie) {
-          localStorage.setItem("user_id", uidCookie.split("=")[1]);
-        }
-      }
-    } catch (err) {
-      console.error("Init error:", err);
-      statusElem.textContent = "Failed to connect.";
+      const r = await fetch(`/init?user_id=${getUserId()}`);
+      const d = await r.json();
+      addMessage('ai', d.message);
+    } catch {
+      document.getElementById('status').textContent = 'Init failed.';
     }
-    document.getElementById("user-input").focus();
+  }
+
+  window.addEventListener('DOMContentLoaded', async () => {
+    await checkOllama();
+    await init();
+    document.getElementById('user-input').focus();
   });
 </script>
+
 </body>
 </html>
